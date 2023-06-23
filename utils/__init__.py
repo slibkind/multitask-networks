@@ -1,1 +1,1 @@
-from .utils import smooth_sequence
+from .sequences import smooth_sequence

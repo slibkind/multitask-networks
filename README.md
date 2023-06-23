@@ -23,22 +23,21 @@ Before running the training and analysis scripts, make sure your Python environm
 
 ## Running the Scripts
 
-The project contains two main scripts: 
+The project contains one main script: 
 
 - `train.py`: Trains the RNNs on the specified tasks and saves the trained networks.
-- `analyze.py`: Analyzes the saved RNNs by running gradient descent on the speed of the dynamics for fixed inputs.
 
-Each script can be run from the command line as follows:
+which can be run from the command line as follows:
 
 ```bash
 python train.py
-python analyze.py
 ```
+
+Two notebooks `tasks.ipynb` and `analysis.ipynb` are used for analyzing the tasks and network behavior.
 
 ## Project Structure
 
 - `train.py`: The main training script.
-- `analyze.py`: The main analysis script.
 - `models/`: Directory to store the trained RNN models.
 - `rnn.py`: Defines the `RNN` class, which represents the RNN model.
 - `tasks/`: Directory that contains a separate Python file for each task (for example, `delay_go.py`, `delay_anti.py`, etc.). Each file defines a class for the task that inherits from the base `Task` class. The `Task` class is also defined in this directory.

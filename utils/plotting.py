@@ -4,10 +4,10 @@ from utils.sequences import add_task_identity
 import torch
 import torch.nn.functional as F
 
-def plot_behavior(task_names, num_hidden, alpha, activation):
+def plot_behavior(task_names, num_hidden, hparams):
     
     # Retrieve the model and task information
-    rnn, tasks = get_model(task_names, num_hidden, alpha, activation)
+    rnn, tasks = get_model(task_names, num_hidden, hparams)
     
     # Iterate over each task
     for task_index in range(len(tasks)):

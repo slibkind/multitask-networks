@@ -1,13 +1,30 @@
 import torch
 import torch.nn.functional as F
+import torch.optim as optim
+import torch.optim.lr_scheduler as lr_scheduler
 
 import os
 import random
+import math
+import numpy as np
 
-from utils.rnn import MultitaskRNN, get_model_name
-from tasks import DelayGo
+from utils.rnn import MultitaskRNN, get_model_path
+from utils.sequences import add_task_identity
+from tasks import DelayGo, DelayAnti
 
-model_path = "models/"
+# Add your set_seed function here
+def set_seed(seed):
+    """Set seed for reproducibility."""
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
+
+# Set your seed here
+seed = 2
+set_seed(2) 
 
 def check_task_compatibility(tasks):
     """Check that all tasks have the same number of inputs and outputs."""
@@ -20,57 +37,69 @@ def check_task_compatibility(tasks):
 
     return True
 
-def train_rnn_on_tasks(rnn, tasks, epochs, batch_size, learning_rate, patience):
+def train_rnn_on_tasks(rnn, tasks, epochs, hparams):
     """Train the RNN on multiple tasks."""
+    
+    batch_size = hparams['batch_size']
+    learning_rate = hparams['learning_rate']
+    sigma_x = hparams['sigma_x']
+    alpha = hparams['alpha']
 
-    noise = 0.05
+    
+    min_period = 50
+    max_period = 50
+
+    grace_frac = 0.1
+
+    noise = sigma_x/math.sqrt(2/alpha)
 
     # Generate a descriptive model name and create the save path
-    model_name = get_model_name(tasks, num_hidden, alpha, activation)
-    save_path = os.path.join(model_path, model_name)
+    task_names = [task.__class__.__name__ for task in tasks]
+    save_path = get_model_path(task_names, num_hidden, hparams)
 
     # Check that all tasks have the same number of inputs and outputs
     if not check_task_compatibility(tasks):
         raise ValueError("All tasks must have the same number of inputs and outputs.")
 
-    # Initialize the optimizer
+    # Initialize the optimizer and scheduler (if applicable)
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
-
-    best_loss = float('inf')  # Initialize the best loss to a large value
-    no_improvement_count = 0  # Count the number of epochs without improvement
 
     # Training loop
     for epoch in range(epochs):
         # Reset the hidden state
         hidden = rnn.init_hidden(batch_size)
 
-        # Randomly select a task for each sequence in the batch
-        task_indices = torch.randint(len(tasks), (batch_size,))
+        # Randomly select a task for the entire batch
+        task_index = torch.randint(len(tasks), (1,)).item() 
+        task = tasks[task_index]
+
         
         # Generate a batch of sequences for each selected task
         inputs = []
         outputs = []
         masks = []  # For masking the loss calculation
-        for i in range(batch_size):
-            task = tasks[task_indices[i]]
 
+        # Get a random period duration
+        period_duration = random.randint(min_period, max_period + 1)
+
+        for i in range(batch_size):
+            
             # Define the smoothing window
-            min_window = int(0.1 * task.period_duration)
-            max_window = int(0.5 * task.period_duration)
+            min_window = 1 #int(0.1 * period_duration)
+            max_window = 20 #int(0.5 * period_duration)
             smoothing_window = random.randint(min_window, max_window)
 
             # Generate a batch of sequences for the task with the selected smoothing window
-            task_inputs, task_outputs = task.generate_batch(1, smoothing_window=smoothing_window, noise = noise)
-
+            task_inputs, task_outputs = task.generate_batch(1, period_duration = period_duration, smoothing_window=smoothing_window, noise = noise)
             
             # Extend the inputs with the task identity
-            task_identity = F.one_hot(task_indices[i], num_classes=len(tasks)).float()
-            task_inputs = torch.cat([task_inputs, task_identity.expand(task_inputs.shape[:2] + (-1,))], dim=-1)
+            task_inputs = add_task_identity(task_inputs, task_index, len(tasks))
+            
             inputs.append(task_inputs)
             outputs.append(task_outputs)
 
             # Create a mask for the grace period
-            mask = task.mask.unsqueeze(0)
+            mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
             masks.append(mask)
 
         inputs = torch.cat(inputs)
@@ -83,9 +112,37 @@ def train_rnn_on_tasks(rnn, tasks, epochs, batch_size, learning_rate, patience):
         # Compute the loss
         loss = F.mse_loss(predictions * masks, outputs * masks)
 
-        # Backward pass and optimization
+        # Add L1 and L2 regularization for weights
+        l1_lambda = hparams['l1_lambda']  # Set your L1 regularization rate
+        l2_lambda = hparams['l2_lambda']  # Set your L2 regularization rate
+
+        l1_reg = torch.tensor(0., requires_grad=True)
+        l2_reg = torch.tensor(0., requires_grad=True)
+
+        for name, param in rnn.named_parameters():
+            if 'weight' in name:
+                l1_reg += torch.norm(param, 1)
+                l2_reg += torch.norm(param, 2)
+
+        loss += l1_lambda * l1_reg + l2_lambda * l2_reg
+
+        # Add L1 and L2 regularization for hidden states
+        l1_h_lambda = hparams['l1_h_lambda']  # Set your L1 regularization rate for hidden states
+        l2_h_lambda = hparams['l2_h_lambda']  # Set your L2 regularization rate for hidden states
+
+        l1_h_reg = torch.norm(hidden, 1)
+        l2_h_reg = torch.norm(hidden, 2)
+
+        loss += l1_h_lambda * l1_h_reg + l2_h_lambda * l2_h_reg
+
+        # Backward pass
         optimizer.zero_grad()
         loss.backward()
+
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(rnn.parameters(), max_norm=10)
+
+        # Optimization
         optimizer.step()
 
         # Save the model at specified intervals
@@ -100,37 +157,44 @@ def train_rnn_on_tasks(rnn, tasks, epochs, batch_size, learning_rate, patience):
         if epoch % 100 == 0:
             print(f"Epoch {epoch}: Loss = {loss.item()}")
 
-            # Apply early stopping
-            if loss.item() < best_loss:
-                best_loss = loss.item()
-                no_improvement_count = 0
-            else:
-                no_improvement_count += 1
-                if no_improvement_count >= patience:
-                    print(f"Early stopping triggered at epoch {epoch}")
-                    break
                 
     print("Training complete.")
         
 
 # Initialize tasks
-delay_go_task = DelayGo(period_duration=50)
-# delay_anti_task = DelayAntiTask(period_duration=50)
-tasks = [delay_go_task]
+delay_go_task = DelayGo()
+delay_anti_task = DelayAnti()
+
+tasks = [delay_go_task, delay_anti_task]
 
 # Initialize RNN model
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
 num_outputs = tasks[0].num_outputs
-num_hidden = 3
-alpha = 0.1
-activation = torch.tanh
+num_hidden = 255
 
-rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, alpha, activation)
 
 # Train the model
 epochs = 10000
-batch_size = 32
-learning_rate = 0.01
-patience = 10
+lr = -7
+dt = 20
+tau = 100
 
-train_rnn_on_tasks(rnn, tasks, epochs, batch_size, learning_rate, patience)
+hparams = {
+    'batch_size': 64, 
+    'learning_rate': 10**(lr/2),
+    'sigma_x': 0.1,
+    'alpha': dt/tau,
+    'sigma_rec': 0.05,
+    'activation': 'softplus',
+    'w_in_coeff': 1.0,
+    'w_rec_coeff': 0.9, 
+    'w_rec_init': 'diag',
+    'l1_lambda': 0.0,
+    'l2_lambda': 1e-7,
+    'l1_h_lambda': 0.0,
+    'l2_h_lambda': 1e-7,
+    'seed': seed
+}
+
+rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
+train_rnn_on_tasks(rnn, tasks, epochs, hparams)
