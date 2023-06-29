@@ -1,5 +1,55 @@
 import torch
 from torch import optim
+from utils.rnn import run_model 
+
+def get_all_hiddens(rnn, tasks):
+    """
+    Runs the given RNN model on all tasks and returns the concatenated hidden states.
+
+    Args:
+        rnn (nn.Module): The RNN model.
+        tasks (list): List of tasks.
+
+    Returns:
+        torch.Tensor: The concatenated hidden states of shape (n_sequences * time_steps, n_hidden).
+    """
+    all_hiddens = []
+    for task_index in range(len(tasks)):
+        _, _, _, hiddens = run_model(rnn, tasks, task_index)
+        all_hiddens.append(hiddens)
+
+    # Concatenate the hidden states from all tasks
+    concatenated_hiddens = torch.cat(all_hiddens, dim=0)
+
+    # Reshape the concatenated hidden states
+    reshaped_hiddens = concatenated_hiddens.view(-1, concatenated_hiddens.size(-1))
+
+    return reshaped_hiddens
+
+
+def get_attractors(model, input, initial_hidden_states, num_timesteps, num_last):
+    """
+    Run the RNN forward for a given number of timesteps and return the output and hidden states trajectories.
+
+    Args:
+        model (torch.nn.Module): The RNN model.
+        input (torch.Tensor): The input to the RNN. This should be a 1D tensor of shape (n_inputs,).
+        initial_hidden_states (torch.Tensor): The initial hidden states for the RNN. This should be a 2D tensor of shape (batch_size, n_hidden).
+        num_timesteps (int): The number of timesteps to run the RNN forward.
+        num_last (int): The number of hidden states from the end to return.
+
+    Returns: 
+        torch.Tensor, torch.Tensor: The output trajectory and hidden state trajectory. Both are 3D tensors of shape (batch_size, timesteps, feature_size).
+    """
+    # Expand the input to the correct shape
+    expanded_input = input.unsqueeze(0).unsqueeze(1).expand(initial_hidden_states.size(0), num_timesteps, -1)
+
+    # Run the RNN forward
+    _, hidden_state_trajectory = model.forward_trajectory(expanded_input, initial_hidden_states)
+    
+    return hidden_state_trajectory[:, -num_last:]
+
+
 
 def minimize_speed(model, inputs, initial_hidden, learning_rate, num_iterations, q_thresh, verbose=True):
     """
@@ -43,25 +93,3 @@ def minimize_speed(model, inputs, initial_hidden, learning_rate, num_iterations,
             print(f"Max speed: {torch.max(dhidden).item()}")
 
     return hidden
-
-def find_attractors(model, inputs, initial_hidden, num_iterations, n_last):
-    """
-    Finds the attracting fixed points by running the model forward for a given number of iterations and returns the last n_last elements of the hidden trajectory.
-
-    Args:
-        model (nn.Module): The model to be run.
-        inputs (torch.Tensor): The input tensor of shape (batch_size, n_inputs).
-        initial_hidden (torch.Tensor): The initial hidden state tensor of shape (batch_size, n_hidden).
-        num_iterations (int): Number of iterations to run the model forward.
-        n_last (int): Number of last hidden states to return.
-
-    Returns:
-        torch.Tensor: The hidden state trajectory tensor of shape (batch_size, n_last, n_hidden).
-    """
-    batch_size = inputs.size(0)
-
-    inputs = inputs.unsqueeze(1).expand(batch_size, num_iterations, inputs.size(1))
-    _, hidden_trajectory = model(inputs, initial_hidden)
-
-    return hidden_trajectory[:, -n_last:]
-

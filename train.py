@@ -46,8 +46,8 @@ def train_rnn_on_tasks(rnn, tasks, epochs, hparams):
     alpha = hparams['alpha']
 
     
-    min_period = 50
-    max_period = 50
+    min_period = 25
+    max_period = 200
 
     grace_frac = 0.1
 
@@ -165,12 +165,12 @@ def train_rnn_on_tasks(rnn, tasks, epochs, hparams):
 delay_go_task = DelayGo()
 delay_anti_task = DelayAnti()
 
-tasks = [delay_go_task, delay_anti_task]
+tasks = [delay_go_task]
 
 # Initialize RNN model
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
 num_outputs = tasks[0].num_outputs
-num_hidden = 255
+num_hidden = 256
 
 
 # Train the model

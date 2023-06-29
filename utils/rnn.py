@@ -128,9 +128,34 @@ class MultitaskRNN(nn.Module):
     def init_hidden(self, batch_size):
         # Initialize hidden state
         return torch.zeros(batch_size, self.hidden_size)
+    
+    def forward_trajectory(self, inputs, hidden):
+        """
+        Run the RNN forward for the input sequence and return the output and hidden states trajectories.
+
+        Args:
+            inputs (torch.Tensor): The inputs to the RNN. This should be a 3D tensor of shape (batch_size, timesteps, n_inputs).
+            hidden (torch.Tensor): The initial hidden states for the RNN. This should be a 2D tensor of shape (batch_size, n_hidden).
+
+        Returns: 
+            torch.Tensor, torch.Tensor: The output trajectory and hidden state trajectory. Both are 3D tensors of shape (batch_size, timesteps, feature_size).
+        """
+        batch_size = inputs.size(0)
+        timesteps = inputs.size(1)
+        outputs = torch.zeros(batch_size, timesteps, self.output_size)  # Adjust output_size based on your model
+        hidden_states = torch.zeros(batch_size, timesteps, hidden.size(1)) # Tensor to store hidden states at each time-step
+
+        # Iterate over the time steps of the input sequence
+        for i, input_t in enumerate(inputs.unbind(dim=1)):
+            # Implement the RNN equation
+            hidden = (1 - self.alpha) * hidden + self.alpha * self.activation(torch.einsum('ij,bj->bi', self.W_in, input_t) + torch.einsum('ij,bj->bi', self.W_rec, hidden) + self.b) 
+            outputs[:, i] = torch.einsum('ij,bj->bi', self.W_out, hidden) + self.b_out
+            hidden_states[:, i] = hidden
+
+        return outputs, hidden_states
 
 
-def run_model(rnn, tasks, task_index):
+def run_model(rnn, tasks, task_index, period_duration=50):
     """
     Runs the RNN model on the input sequences for a specific task and returns the inputs, outputs, output trajectory,
     and hidden trajectory.
@@ -151,50 +176,13 @@ def run_model(rnn, tasks, task_index):
     task = tasks[task_index]
 
     # Generate all input sequences for the task
-    input_sequences, output_sequences = task.generate_all_sequences()
+    input_sequences, output_sequences = task.generate_all_sequences(period_duration=period_duration)
     input_sequences = add_task_identity(input_sequences, task_index, len(tasks))
 
-    # Run the network with the input sequences in batches
-    batch_size = input_sequences.shape[0]
-    hidden = rnn.init_hidden(batch_size=batch_size)
+    # Initialize the hidden state
+    hidden = rnn.init_hidden(batch_size=input_sequences.size(0))
 
-    # Initialize the output and hidden trajectories with zeros
-    output_trajectory = torch.zeros(batch_size, input_sequences.size(1), rnn.output_size)  # Adjust output_size based on your model
-    hidden_trajectory = torch.zeros(batch_size, input_sequences.size(1), rnn.hidden_size)  # Adjust hidden_size based on your model
-
-    # Iterate over the time steps of the input sequence
-    for i, input_t in enumerate(input_sequences.unbind(dim=1)):
-        # Implement the RNN equation
-        hidden = (1 - rnn.alpha) * hidden + rnn.alpha * rnn.activation(torch.einsum('ij,bj->bi', rnn.W_in, input_t) + torch.einsum('ij,bj->bi', rnn.W_rec, hidden) + rnn.b)
-        output = torch.einsum('ij,bj->bi', rnn.W_out, hidden) + rnn.b_out
-
-        # Update the trajectories with the current output and hidden states
-        output_trajectory[:, i] = output
-        hidden_trajectory[:, i] = hidden
+    # Run the forward_trajectory method to get the output and hidden trajectories
+    output_trajectory, hidden_trajectory = rnn.forward_trajectory(input_sequences, hidden)
 
     return input_sequences, output_sequences, output_trajectory, hidden_trajectory
-
-def get_all_hiddens(rnn, tasks):
-    """
-    Runs the given RNN model on all tasks and returns the concatenated hidden states.
-
-    Args:
-        rnn (nn.Module): The RNN model.
-        tasks (list): List of tasks.
-
-    Returns:
-        torch.Tensor: The concatenated hidden states of shape (n_sequences * time_steps, n_hidden).
-    """
-    all_hiddens = []
-    for task_index in range(len(tasks)):
-        _, _, _, hiddens = run_model(rnn, tasks, task_index)
-        all_hiddens.append(hiddens)
-
-    # Concatenate the hidden states from all tasks
-    concatenated_hiddens = torch.cat(all_hiddens, dim=0)
-
-    # Reshape the concatenated hidden states
-    reshaped_hiddens = concatenated_hiddens.view(-1, concatenated_hiddens.size(-1))
-
-    return reshaped_hiddens
-
