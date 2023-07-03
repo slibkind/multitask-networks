@@ -51,45 +51,127 @@ def get_attractors(model, input, initial_hidden_states, num_timesteps, num_last)
 
 
 
-def minimize_speed(model, inputs, initial_hidden, learning_rate, num_iterations, q_thresh, verbose=True):
+# def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbose=True):
+#     """
+#     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
+#     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
+#     exploration of the hidden state space.
+
+#     Args:
+#         model (nn.Module): The multitask RNN model.
+#         input (torch.Tensor): The input sequence of shape (num_inputs). This single sequence is used for all initial conditions.
+#         initial_hidden (torch.Tensor): The initial hidden states of shape (num_initial_conditions, num_hidden).
+#             Each row corresponds to the initial hidden state for a different initial condition.
+#         learning_rate (float): Learning rate for gradient descent.
+#         q_thresh (float): A threshold for the speed. The optimization stops if the maximum speed across all initial conditions is less than this threshold.
+#         verbose (bool, optional): Whether to print progress messages. Defaults to True.
+
+#     Returns:
+#         torch.Tensor: The updated hidden states that minimize the speed. Each row corresponds to the optimized 
+#         hidden state for a different initial condition.
+#     """
+
+#     # Start with a copy of the initial hidden states, enabling gradient computation
+#     hidden = initial_hidden.detach().clone().requires_grad_(True)
+#     optimizer = optim.SGD([hidden], lr=learning_rate)
+
+#     # Create a tensor of inputs by duplicating the single input across all initial conditions
+#     inputs = input.repeat(initial_hidden.shape[0], 1)
+
+#     iteration = 0
+#     while True:
+#         # Reset gradients from previous iteration
+#         optimizer.zero_grad()
+
+#         # Forward pass: compute the dynamics given the current hidden states and inputs
+#         dhidden = -hidden + model.activation(torch.einsum('ij,bj->bi', model.W_in, inputs) + torch.einsum('ij,bj->bi', model.W_rec, hidden) + model.b)
+
+#         # Compute the speed for each initial condition
+#         speed_per_init_cond = 0.5 * torch.norm(dhidden, dim=1) ** 2
+
+#         # Sum the speeds across all initial conditions to get the total speed
+#         total_speed = torch.sum(speed_per_init_cond)
+
+#         # Check if the maximum speed across all initial conditions is below the threshold, if so, end optimization
+#         if torch.max(speed_per_init_cond).item() < q_thresh: 
+#             if verbose:
+#                 print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
+#             break
+
+#         # Backward pass: compute gradients of the total speed with respect to the hidden states
+#         total_speed.backward()
+
+#         # Update the hidden states using the computed gradients
+#         optimizer.step()
+
+#         # Print the maximum speed across all initial conditions for every 1000 iterations
+#         if verbose and iteration % 1000 == 0:
+#             print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
+
+#         iteration += 1
+
+#     return hidden
+
+
+def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbose=True):
     """
-    Minimizes the speed (q) of the dynamics of a given model using gradient descent.
+    Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
+    is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
+    exploration of the hidden state space.
 
     Args:
         model (nn.Module): The multitask RNN model.
-        inputs (torch.Tensor): The input sequences of shape (batch_size, num_inputs).
-        initial_hidden (torch.Tensor): The initial hidden state of shape (batch_size, num_hidden).
+        input (torch.Tensor): The input sequence of shape (num_inputs). This single sequence is used for all initial conditions.
+        initial_hidden (torch.Tensor): The initial hidden states of shape (num_initial_conditions, num_hidden).
+            Each row corresponds to the initial hidden state for a different initial condition.
         learning_rate (float): Learning rate for gradient descent.
-        num_iterations (int): Number of iterations for gradient descent.
-        verbose (bool, optional): Whether to print the speed value. Defaults to True.
+        q_thresh (float): A threshold for the speed. The optimization stops if the maximum speed across all initial conditions is less than this threshold.
+        verbose (bool, optional): Whether to print progress messages. Defaults to True.
 
     Returns:
-        torch.Tensor: The updated hidden state that minimizes the speed.
+        torch.Tensor: The updated hidden states that minimize the speed. Each row corresponds to the optimized 
+        hidden state for a different initial condition.
     """
 
-    hidden = initial_hidden.detach().clone().requires_grad_(True)
-    optimizer = optim.SGD([hidden], lr=learning_rate)    
+    # Create a tensor of inputs by duplicating the single input across all initial conditions
+    inputs = input.repeat(initial_hidden.shape[0], 1)
 
-    for i in range(num_iterations):
+    hidden = initial_hidden.detach().clone().requires_grad_(True)
+    optimizer = optim.SGD([hidden], lr=learning_rate)   
+
+    # Create a learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500, eta_min=1e-6) 
+
+    iteration = 0
+    while True:        
         optimizer.zero_grad()
 
         # Forward pass to compute the dynamics
         dhidden = -hidden + model.activation(torch.einsum('ij,bj->bi', model.W_in, inputs) + torch.einsum('ij,bj->bi', model.W_rec, hidden) + model.b)
 
-        # Compute the speed for each batch and sum the results
-        speed = 0.5 * torch.sum(torch.norm(dhidden, dim=1) ** 2)
+        # Compute the speed for each initial condition
+        speed_per_init_cond = 0.5 * torch.norm(dhidden, dim=1) ** 2
 
-        if torch.max(dhidden).item() < q_thresh: 
+        # Sum the speeds across all initial conditions to get the total speed
+        total_speed = torch.sum(speed_per_init_cond)
+
+        if torch.max(speed_per_init_cond).item() < q_thresh: 
+            if verbose:
+                print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
             break
 
         # Backward pass to compute the gradients
-        speed.backward()
+        total_speed.backward()
 
         # Update the hidden state using gradient descent
         optimizer.step()
 
-        if verbose and i % 1000 == 0:
-            print(f"Speed at iteration {i}: {speed.item()}")
-            print(f"Max speed: {torch.max(dhidden).item()}")
+        # Step the learning rate scheduler
+        scheduler.step()
+
+        if verbose and iteration % 1000 == 0:
+            print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
+
+        iteration += 1
 
     return hidden
