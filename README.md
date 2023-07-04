@@ -39,6 +39,12 @@ Two notebooks `tasks.ipynb` and `analysis.ipynb` are used for analyzing the task
 
 - `train.py`: The main training script.
 - `models/`: Directory to store the trained RNN models.
+  - `<model_name>/`: Directory for each model, containing the files specific to that model.
+    - `hparams.json`: JSON file containing hyperparameters for the model.
+    - `model.pt`: Saved model file for the model.
+    - `analysis/`: Directory to store analysis data for the model.
+    ...
+
 - `rnn.py`: Defines the `RNN` class, which represents the RNN model.
 - `tasks/`: Directory that contains a separate Python file for each task (for example, `delay_go.py`, `delay_anti.py`, etc.). Each file defines a class for the task that inherits from the base `Task` class. The `Task` class is also defined in this directory.
 - `utils.py`: Contains utility functions used in training and analysis.
@@ -49,4 +55,4 @@ You can customize the tasks to train the RNNs on by modifying the list of tasks 
 
 ## About the Analysis
 
-The analysis involves running gradient descent on the speed of the dynamics for fixed inputs, for each trained RNN. The results of the analysis are saved in the `analysis/` directory.
+The analysis involves running gradient descent on the speed of the dynamics for fixed inputs, for each trained RNN. The results of the analysis are saved in the `analysis/` directory within the respective model directory.

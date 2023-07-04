@@ -3,13 +3,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 
-import os
 import random
 import math
 import numpy as np
 
-from utils.rnn import MultitaskRNN, get_model_path
-from utils.sequences import add_task_identity
+from utils.utils import get_hparams, get_model_path
+from utils.model import MultitaskRNN
+from utils.task import add_task_identity
 from tasks import DelayGo, DelayAnti
 
 # Add your set_seed function here
@@ -37,7 +37,7 @@ def check_task_compatibility(tasks):
 
     return True
 
-def train_rnn_on_tasks(rnn, tasks, epochs, hparams):
+def train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path):
     """Train the RNN on multiple tasks."""
     
     batch_size = hparams['batch_size']
@@ -52,10 +52,6 @@ def train_rnn_on_tasks(rnn, tasks, epochs, hparams):
     grace_frac = 0.1
 
     noise = sigma_x/math.sqrt(2/alpha)
-
-    # Generate a descriptive model name and create the save path
-    task_names = [task.__class__.__name__ for task in tasks]
-    save_path = get_model_path(task_names, num_hidden, hparams)
 
     # Check that all tasks have the same number of inputs and outputs
     if not check_task_compatibility(tasks):
@@ -168,33 +164,17 @@ delay_anti_task = DelayAnti()
 tasks = [delay_go_task]
 
 # Initialize RNN model
+model_name = "delaygo_delayanti_test"
+hparams = get_hparams(model_name)
+
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
 num_outputs = tasks[0].num_outputs
 num_hidden = 256
 
+rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
 epochs = 10000
-lr = -7
-dt = 20
-tau = 100
+save_path = get_model_path(model_name)
 
-hparams = {
-    'batch_size': 64, 
-    'learning_rate': 10**(lr/2),
-    'sigma_x': 0.1,
-    'alpha': dt/tau,
-    'sigma_rec': 0.05,
-    'activation': 'softplus',
-    'w_in_coeff': 1.0,
-    'w_rec_coeff': 0.9, 
-    'w_rec_init': 'diag',
-    'l1_lambda': 0.0,
-    'l2_lambda': 1e-7,
-    'l1_h_lambda': 0.0,
-    'l2_h_lambda': 1e-7,
-    'seed': seed
-}
-
-rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
-train_rnn_on_tasks(rnn, tasks, epochs, hparams)
+train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path)

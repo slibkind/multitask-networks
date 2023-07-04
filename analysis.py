@@ -1,7 +1,8 @@
-from utils.plotting import plot_behavior, plot_pca
-from utils.sequences import add_task_identity
+from utils.plotting_utils import plot_behavior, plot_pca
+from utils.task import add_task_identity
 from utils.analysis import get_all_hiddens, minimize_speed, get_attractors
-from utils.rnn import MultitaskRNN, get_model, run_model
+from utils.model import MultitaskRNN, run_model
+from utils.utils import get_model
 
 import torch
 import torch.nn.functional as F
@@ -10,31 +11,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
-task_names = ['DelayGo', 'DelayAnti']
-num_hidden = 255
-seed = 2
-lr = -7
-dt = 20
-tau = 100
+model_name = "delaygo_delayanti_255"
 
-hparams = {
-    'batch_size': 64, 
-    'learning_rate': 10**(lr/2),
-    'sigma_x': 0.1,
-    'alpha': dt/tau,
-    'sigma_rec': 0.05,
-    'activation': 'softplus',
-    'w_in_coeff': 1.0,
-    'w_rec_coeff': 0.9, 
-    'w_rec_init': 'diag',
-    'l1_lambda': 0.0,
-    'l2_lambda': 1e-7,
-    'l1_h_lambda': 0.0,
-    'l2_h_lambda': 1e-7,
-    'seed': seed
-}
-
-rnn, tasks = get_model(task_names, num_hidden, hparams)
+rnn, tasks = get_model(model_name)
 
 all_hiddens = get_all_hiddens(rnn, tasks)
 

@@ -3,45 +3,11 @@ from torch import nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
-import os
+import matplotlib.pyplot as plt
 
-from utils.sequences import add_task_identity
+from utils.task import add_task_identity
+from utils.utils import get_model
 
-model_path = 'models/'
-
-import os
-
-def get_model_path(task_names, num_hidden, hparams):
-    alpha = hparams['alpha']
-    activation = hparams['activation']
-    model_name = '-'.join(task_names)
-    model_name += f'_hidden{num_hidden}'
-    model_name += f'_alpha{int(alpha * 100)}'
-    model_name += f'_{activation}'
-    model_name += '.pt'
-
-    save_path = os.path.join(model_path, model_name)  # Assuming model_path is defined
-    return save_path
-
-
-def get_model_checkpoint(task_names, num_hidden, hparams):
-    model_path = get_model_path(task_names, num_hidden, hparams)
-    return torch.load(model_path)
-
-
-def get_model(task_names, num_hidden, hparams):
-    model_checkpoint = get_model_checkpoint(task_names, num_hidden, hparams)
-    
-    model_state_dict = model_checkpoint['model_state_dict']
-    tasks = model_checkpoint['tasks']
-
-    # Create the MultitaskRNN instance
-    rnn = MultitaskRNN(input_size=tasks[0].num_inputs + len(tasks),
-                       hidden_size=num_hidden,
-                       output_size=tasks[0].num_outputs,
-                       hparams=hparams)
-    rnn.load_state_dict(model_state_dict)
-    return rnn, tasks
 
 
 
@@ -186,3 +152,47 @@ def run_model(rnn, tasks, task_index, period_duration=50):
     output_trajectory, hidden_trajectory = rnn.forward_trajectory(input_sequences, hidden)
 
     return input_sequences, output_sequences, output_trajectory, hidden_trajectory
+
+
+
+def plot_behavior(model_name, period_duration=50):
+    """
+    Plot the behavior of a trained recurrent neural network (RNN) on different tasks.
+
+    Parameters:
+        model_name (str): The name of the trained model.
+        period_duration (int, optional): The duration of each period in the input sequences. Default is 50.
+
+    Returns:
+        None
+
+    Raises:
+        FileNotFoundError: If the specified model file does not exist.
+
+    """
+
+    # Retrieve the model and task information
+    rnn, tasks = get_model(model_name)
+    
+    # Iterate over each task
+    for task_index in range(len(tasks)):
+        task_name = tasks[task_index].__class__.__name__
+        inputs, outputs, output_pred, _ = run_model(rnn, tasks, task_index, period_duration)
+
+        # Iterate over each input sequence
+        for i in range(inputs.shape[0]):
+            true_output = outputs[i].squeeze().detach().numpy()
+            network_output = output_pred[i].squeeze().detach().numpy()
+
+            # Plot true and network outputs in separate plots
+            plt.figure()
+            for j, (true_dim, network_dim) in enumerate(zip(true_output.T, network_output.T)):
+                color = plt.cm.get_cmap('tab10')(j)  # Get a unique color for each output dimension
+                plt.plot(true_dim, label='True Output', color=color)
+                plt.plot(network_dim, label='Network Output', linestyle='--', color=color)
+            
+            plt.xlabel('Time Step')
+            plt.ylabel('Output')
+            plt.title(f'Behavior of Network on {task_name} - Sequence {i+1}')
+            plt.legend()
+            plt.show()

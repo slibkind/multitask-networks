@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 
+
 def smooth_sequence(sequence, window):
     """
     Smooths a sequence tensor along a specified axis using convolution with a diagonal kernel.
@@ -58,3 +59,5 @@ def add_task_identity(inputs, task_index, num_tasks):
     extended_inputs = torch.cat([inputs, expanded_task_identity], dim=-1)
 
     return extended_inputs
+
+
