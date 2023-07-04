@@ -15,6 +15,9 @@ def get_hparams(model_name):
     hparams["alpha"] = hparams["dt"]/hparams["tau"]
     return hparams
 
+def get_model_dir(model_name):
+    return os.path.join(model_dir, model_name)
+
 def get_model_path(model_name):
     return os.path.join(model_dir, model_name, "model.pt")
 

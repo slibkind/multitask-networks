@@ -2,3 +2,4 @@
 __pycache__/
 temp/
 *.pyc
+models/old_models/

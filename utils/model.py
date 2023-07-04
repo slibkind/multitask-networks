@@ -6,9 +6,6 @@ import torch.nn.init as init
 import matplotlib.pyplot as plt
 
 from utils.task import add_task_identity
-from utils.utils import get_model
-
-
 
 
 def __init__(self, input_size, hidden_size, output_size, hparams):
@@ -155,12 +152,13 @@ def run_model(rnn, tasks, task_index, period_duration=50):
 
 
 
-def plot_behavior(model_name, period_duration=50):
+def plot_behavior(rnn, tasks, period_duration=50):
     """
     Plot the behavior of a trained recurrent neural network (RNN) on different tasks.
 
     Parameters:
-        model_name (str): The name of the trained model.
+        rnn (nn.Module): The RNN model.
+        tasks (list): List of tasks.
         period_duration (int, optional): The duration of each period in the input sequences. Default is 50.
 
     Returns:
@@ -171,9 +169,6 @@ def plot_behavior(model_name, period_duration=50):
 
     """
 
-    # Retrieve the model and task information
-    rnn, tasks = get_model(model_name)
-    
     # Iterate over each task
     for task_index in range(len(tasks)):
         task_name = tasks[task_index].__class__.__name__
