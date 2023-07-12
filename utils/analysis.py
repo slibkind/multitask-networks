@@ -92,7 +92,11 @@ def get_speed(model, input, hidden, duplicate_input=True):
     return speed
 
     
-def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbose=True):
+import time
+import torch
+from torch import optim
+
+def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbose=True, method='first'):
     """
     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
@@ -106,54 +110,78 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbos
         learning_rate (float): Learning rate for gradient descent.
         q_thresh (float): A threshold for the speed. The optimization stops if the maximum speed across all initial conditions is less than this threshold.
         verbose (bool, optional): Whether to print progress messages. Defaults to True.
+        method (str, optional): Whether to use 'first' or 'second' order optimization. Defaults to 'first'.
 
     Returns:
         torch.Tensor: The updated hidden states that minimize the speed. Each row corresponds to the optimized 
         hidden state for a different initial condition.
     """
 
+    # Check if a GPU is available and if not, use a CPU
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Move the model and tensors to the chosen device
+    model = model.to(device)
+    input = input.to(device)
+    initial_hidden = initial_hidden.to(device)
+
     # Create a tensor of inputs by duplicating the single input across all initial conditions
     inputs = input.repeat(initial_hidden.shape[0], 1)
 
     hidden = initial_hidden.detach().clone().requires_grad_(True)
-    optimizer = optim.SGD([hidden], lr=learning_rate)   
-
-    # Create a learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500, eta_min=1e-6) 
+    
+    if method.lower() == 'first':
+        optimizer = optim.SGD([hidden], lr=learning_rate)
+    elif method.lower() == 'second':
+        optimizer = optim.LBFGS([hidden], lr=learning_rate)
+    else:
+        raise ValueError("Unknown method: {}. Use 'first' or 'second'.".format(method))
 
     iteration = 0
-    while True:        
-        optimizer.zero_grad()
+    while True:
+        start_time = time.time()
+        speed_per_init_cond = None
+        
+        def closure():
+            nonlocal speed_per_init_cond
+            optimizer.zero_grad()
 
-        # Forward pass to compute the dynamics
-        dhidden = -hidden + model.activation(torch.einsum('ij,bj->bi', model.W_in, inputs) + torch.einsum('ij,bj->bi', model.W_rec, hidden) + model.b)
+            # Forward pass to compute the dynamics
+            dhidden = -hidden + model.activation(torch.einsum('ij,bj->bi', model.W_in, inputs) + torch.einsum('ij,bj->bi', model.W_rec, hidden) + model.b)
 
-        # Compute the speed for each initial condition
-        speed_per_init_cond = 0.5 * torch.norm(dhidden, dim=1) ** 2
+            # Compute the speed for each initial condition
+            speed_per_init_cond = 0.5 * torch.norm(dhidden, dim=1) ** 2
 
-        # Sum the speeds across all initial conditions to get the total speed
-        total_speed = torch.sum(speed_per_init_cond)
+            # Sum the speeds across all initial conditions to get the total speed
+            total_speed = torch.sum(speed_per_init_cond)
+
+            # Backward pass to compute the gradients
+            total_speed.backward()
+            
+            return total_speed
+
+        # Depending on the method, the optimizer step is different
+        if method.lower() == 'first':
+            closure()
+            optimizer.step()
+        elif method.lower() == 'second':
+            optimizer.step(closure)
+        
+        if verbose and iteration % 10000 == 0:
+            elapsed_time = time.time() - start_time
+            print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
+            print(f"Time taken for the last 10000 iterations: {elapsed_time} seconds.")
+
+        iteration += 1
 
         if torch.max(speed_per_init_cond).item() < q_thresh: 
             if verbose:
                 print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
             break
 
-        # Backward pass to compute the gradients
-        total_speed.backward()
-
-        # Update the hidden state using gradient descent
-        optimizer.step()
-
-        # Step the learning rate scheduler
-        scheduler.step()
-
-        if verbose and iteration % 10000 == 0:
-            print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
-
-        iteration += 1
-
     return hidden
+
+
 
 
 def plot_pca(data, feature_data, plot_feature_data=False):

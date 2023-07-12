@@ -1,3 +1,4 @@
+#%%
 import torch
 import os
 import time
@@ -56,7 +57,8 @@ for i in range(n_interp + 1):
     start_time = time.time()
     
     # Find the fixed points for the interpolated_input
-    fixed_points = minimize_speed(rnn, interpolated_input, sampled_hiddens, learning_rate, speed_threshold)
+    fixed_points = minimize_speed(rnn, interpolated_input, sampled_hiddens, learning_rate,
+                                  speed_threshold, verbose=True, method="second")
 
     # End timing and print the execution time
     end_time = time.time()
@@ -67,3 +69,5 @@ for i in range(n_interp + 1):
     torch.save(fixed_points, fixed_point_path)
 
     print(f"Fixed points saved at {fixed_point_path}\n")
+
+# %%
