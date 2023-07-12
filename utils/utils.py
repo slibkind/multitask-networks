@@ -43,3 +43,20 @@ def get_model(model_name):
                        hparams=hparams)
     rnn.load_state_dict(model_state_dict)
     return rnn, tasks
+
+def get_analysis_path(model_name):
+    model_path = get_model_dir(model_name)
+    analysis_path = os.path.join(model_path, "analysis")
+    return analysis_path
+
+def get_fixed_point_path(model_name, input):
+    analysis_path = get_analysis_path(model_name)
+
+    # Convert interpolated_input to string for file naming
+    input_str = "_".join([str(int(t.item())) for t in (input * 1000)])
+    
+    return os.path.join(analysis_path, f'fixed_points_{input_str}.pt')
+
+def get_fixed_points(model_name, input):
+    fixed_point_path = get_fixed_point_path(model_name, input)
+    return torch.load(fixed_point_path)

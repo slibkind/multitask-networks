@@ -1,60 +1,69 @@
 import torch
 import os
+import time
 
-from utils.task import add_task_identity
+from utils.task import get_input
 from utils.analysis import get_all_hiddens, minimize_speed
-from utils.utils import get_model, get_model_dir
+from utils.utils import get_model, get_analysis_path, get_fixed_point_path
 
+# Model configuration
 model_name = "delaygo_delayanti_255"
 
+# Define task details
 task_idx = [0, 0]
 period = ["stim", "delay"]
 stimulus = [1, 2]
 
+# Interpolation steps
 n_interp = 20
 
-# parameters for finding fixed points
-lr = 0.1
-q_thresh = 1e-4
-r = 0.1   # proportion of all hidden states to be sampled
-
-
-def get_input(task_idx, period, stimulus, num_tasks):
-    prelim_input = tasks[task_idx].get_input(period, stimulus)
-    input = add_task_identity(prelim_input, task_idx, num_tasks)
-    return input
- 
+# Parameters for finding fixed points
+learning_rate = 0.1
+speed_threshold = 1e-6
+sample_proportion = 0.1   # proportion of all hidden states to be sampled
 
 # Get the analysis path
-model_path = get_model_dir(model_name)
-analysis_path = os.path.join(model_path, "analysis")
+analysis_path = get_analysis_path(model_name)
 
 # Create the analysis directory if it doesn't already exist
 if not os.path.exists(analysis_path):
     os.makedirs(analysis_path)
 
-# Get initial conditions for finding fixed points
+# Load model and get initial conditions for finding fixed points
 rnn, tasks = get_model(model_name)
 all_hiddens = get_all_hiddens(rnn, tasks)
 
-k = all_hiddens.size(0)
-num_samples = int(k * r)  # Calculate the number of samples as 10% of k
+# Determine the number of samples from the proportion of hidden states
+hidden_state_count = all_hiddens.size(0)
+num_samples = int(hidden_state_count * sample_proportion)  # Calculate the number of samples
 
-indices = torch.randperm(k)[:num_samples]  # Randomly permute the indices and select the first num_samples
+# Randomly permute the indices and select the first num_samples
+indices = torch.randperm(hidden_state_count)[:num_samples]  
 sampled_hiddens = all_hiddens[indices]  # Select the sampled hidden points using the sampled indices
 
-
-input1 = get_input(task_idx[0], period[0], stimulus[0], len(tasks))
-input2 = get_input(task_idx[1], period[1], stimulus[1], len(tasks))
+# Generate task inputs
+input1 = get_input(task_idx[0], period[0], stimulus[0], tasks)
+input2 = get_input(task_idx[1], period[1], stimulus[1], tasks)
 
 for i in range(n_interp + 1):
     
+    print(f"Interpolation step {i+1} of {n_interp+1}")
+    
     # Linearly interpolate between the inputs
-    input = (n_interp - i)/n_interp * input1 + (i/n_interp) * input2
+    interpolated_input = (n_interp - i)/n_interp * input1 + (i/n_interp) * input2
 
-    # Find the fixed points for the input
-    fixed_points = minimize_speed(rnn, input, sampled_hiddens, lr, q_thresh)
+    # Start timing
+    start_time = time.time()
+    
+    # Find the fixed points for the interpolated_input
+    fixed_points = minimize_speed(rnn, interpolated_input, sampled_hiddens, learning_rate, speed_threshold)
+
+    # End timing and print the execution time
+    end_time = time.time()
+    print(f"Finding fixed points took {end_time - start_time} seconds.")
 
     # Save the fixed points
-    input_str = "_".join([str(int(t)) for t in 1000*input])
-    torch.save(fixed_points, os.path.join(analysis_path, f'fixed_points_{input_str}.pt'))
+    fixed_point_path = get_fixed_point_path(model_name, interpolated_input) 
+    torch.save(fixed_points, fixed_point_path)
+
+    print(f"Fixed points saved at {fixed_point_path}\n")

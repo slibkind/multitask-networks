@@ -61,3 +61,18 @@ def add_task_identity(inputs, task_index, num_tasks):
     return extended_inputs
 
 
+def get_input(task_idx, period, stimulus, tasks):
+    """
+    Generates task input with identity. 
+
+    Arguments:
+        task_idx (int): index of the task.
+        period (str): period of the task.
+        stimulus (int): stimulus input for the task.
+        tasks (list): list of tasks.
+    Returns: 
+        torch.Tensor: task input with added task identity.
+    """
+    prelim_input = tasks[task_idx].get_input(period, stimulus)
+    task_input = add_task_identity(prelim_input, task_idx, len(tasks))
+    return task_input
