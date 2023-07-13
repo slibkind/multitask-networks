@@ -4,10 +4,11 @@ from torch import optim
 import time
 import matplotlib.pyplot as plt
 import numpy as np
+
 from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN
 
 from utils.model import run_model
-
 
 
 def get_all_hiddens(rnn, tasks):
@@ -210,6 +211,45 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
 
     return hidden
 
+def get_unique_fixed_points(fixed_points):
+    """
+    Apply DBSCAN clustering algorithm on given fixed points to find unique fixed points.
+
+    The function takes as input a torch tensor of fixed points and applies the DBSCAN algorithm to cluster these points. 
+    After clustering, the mean of each cluster is calculated to serve as the representative point for that cluster.
+    This function is designed to reduce the redundancy of fixed points obtained from some process.
+
+    Args:
+        fixed_points (torch.Tensor): Input tensor containing fixed points.
+
+    Returns:
+        torch.Tensor: A tensor containing the representative fixed points.
+    """
+
+    # Convert to numpy for compatibility with DBSCAN
+    fixed_points_np = fixed_points.numpy()
+
+    # Apply DBSCAN
+    dbscan = DBSCAN(eps=0.3, min_samples=1)  # You may want to adjust these parameters
+    dbscan.fit(fixed_points_np)
+
+    # Group fixed points into clusters and calculate eigenvalues for each unique point
+    unique_labels = set(dbscan.labels_)
+
+    # Preallocate representatives as a numpy array
+    representatives = np.empty((len(unique_labels), fixed_points_np.shape[1]))
+
+    i = 0
+    for label in unique_labels:
+        idx = dbscan.labels_ == label
+        cluster_points = fixed_points_np[idx]
+        # Find a representative point for this cluster
+        representative_point = cluster_points.mean(axis=0)
+        representatives[i] = representative_point
+        i += 1
+
+    return torch.from_numpy(representatives)
+
 
 
 
@@ -249,3 +289,4 @@ def plot_pca(data, feature_data, plot_feature_data=False):
     plt.legend()
     plt.grid(True)
     plt.show()
+
