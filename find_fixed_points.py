@@ -1,18 +1,28 @@
 import torch
 import os
 import time
+import numpy as np
+import random
 
 from utils.task import get_input
 from utils.analysis import get_all_hiddens, minimize_speed
 from utils.utils import get_model, get_analysis_path, get_fixed_point_path
+
+# Set seed for reproducibility
+seed = 2
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+
 
 # Model configuration
 model_name = "delaygo_delayanti_255"
 
 # Define task details
 task_details = [
-    ([0, 0], ["fix", "stim"], [1, 1]),    # run through the delaygo task with stimulus 1
-    ([0, 0], ["stim", "delay"], [1, 1]),
+    ([0, 0], ["stim", "delay"], [1, 1]),    # run through the delaygo task with stimulus 1
     ([0, 0], ["delay", "go"], [1, 1]),
     ([0, 0], ["delay", "delay"], [1, 2]), # compare stim 1 and 2 in delaygo task
     ([0, 0], ["stim", "delay"], [2, 2]),
@@ -49,7 +59,6 @@ num_samples = int(hidden_state_count * sample_proportion)  # Calculate the numbe
 # Randomly permute the indices and select the first num_samples
 indices = torch.randperm(hidden_state_count)[:num_samples]  
 sampled_hiddens = all_hiddens[indices]  # Select the sampled hidden points using the sampled indices
-
 
 # Generate task inputs for each pair of details
 for task_idx, period, stimulus in task_details:
