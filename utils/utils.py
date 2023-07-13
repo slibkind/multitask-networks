@@ -58,5 +58,6 @@ def get_fixed_point_path(model_name, input):
     return os.path.join(analysis_path, f'fixed_points_{input_str}.pt')
 
 def get_fixed_points(model_name, input):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     fixed_point_path = get_fixed_point_path(model_name, input)
-    return torch.load(fixed_point_path)
+    return torch.load(fixed_point_path, map_location=device)
