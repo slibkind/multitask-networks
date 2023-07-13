@@ -1,6 +1,7 @@
 import torch
 from torch import optim
 
+import time
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import PCA
@@ -92,11 +93,7 @@ def get_speed(model, input, hidden, duplicate_input=True):
     return speed
 
     
-import time
-import torch
-from torch import optim
-
-def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbose=True, method='first'):
+def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_iterations=None, verbose=True, method='first', grad_threshold=1e-4, check_interval=10000):
     """
     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
@@ -109,13 +106,15 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbos
             Each row corresponds to the initial hidden state for a different initial condition.
         learning_rate (float): Learning rate for gradient descent.
         q_thresh (float): A threshold for the speed. The optimization stops if the maximum speed across all initial conditions is less than this threshold.
-        verbose (bool, optional): Whether to print progress messages. Defaults to True.
-        method (str, optional): Whether to use 'first' or 'second' order optimization. Defaults to 'first'.
+        max_iterations (int, optional): The maximum number of iterations to run the optimization. If None, the optimization runs indefinitely until the condition is met.
+        grad_threshold (float, optional): The threshold for the gradient norm at which we consider a hidden state to have reached a local minimum. Defaults to 1e-4.
+        check_interval (int, optional): The number of iterations between checks for local minima. Defaults to 10000.
 
     Returns:
         torch.Tensor: The updated hidden states that minimize the speed. Each row corresponds to the optimized 
         hidden state for a different initial condition.
     """
+
 
     # Check if a GPU is available and if not, use a CPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -138,8 +137,9 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbos
         raise ValueError("Unknown method: {}. Use 'first' or 'second'.".format(method))
 
     iteration = 0
+    start_time = time.time()
+
     while True:
-        start_time = time.time()
         speed_per_init_cond = None
         
         def closure():
@@ -166,17 +166,46 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, verbos
             optimizer.step()
         elif method.lower() == 'second':
             optimizer.step(closure)
+
+        # Every check_interval iterations, check if any hidden states have reached a local minimum with speed above the threshold
+        if iteration % check_interval == 0:
+            # Get the current gradients
+            grad_norms = torch.norm(hidden.grad.data, dim=1)
+
+            # Find which hidden states are in a local minimum (i.e., their gradient norm is below the threshold)
+            local_minima = grad_norms < grad_threshold
+
+            # If any hidden states are in a local minimum, check their speed
+            if torch.any(local_minima):
+                speed_per_init_cond = get_speed(model, input, hidden.detach())
+                # Find which of these hidden states have speed above the threshold
+                bad_local_minima = local_minima & (speed_per_init_cond > q_thresh)
+
+                # If any hidden states are in a bad local minimum, remove them
+                if torch.any(bad_local_minima):
+                    if verbose: 
+                        num_bad_minima = bad_local_minima.sum().item()
+                        print(f"Removing {num_bad_minima} bad local minima at iteration {iteration}.")
+                    good_indices = ~bad_local_minima
+                    hidden = hidden[good_indices].clone().detach().requires_grad_(True)
+                    inputs = input.repeat(hidden.shape[0], 1)
         
-        if verbose and iteration % 10000 == 0:
+        if verbose and iteration % check_interval == 0:
             elapsed_time = time.time() - start_time
             print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
             print(f"Time taken for the last 10000 iterations: {elapsed_time} seconds.")
+            start_time = time.time()
 
         iteration += 1
 
         if torch.max(speed_per_init_cond).item() < q_thresh: 
             if verbose:
                 print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
+            break
+
+        if max_iterations is not None and iteration >= max_iterations:
+            if verbose:
+                print(f"Stopping optimization: reached maximum number of iterations ({max_iterations}).")
             break
 
     return hidden
