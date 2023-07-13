@@ -30,15 +30,18 @@ class DelayGo(Task):
 
         Raises:
             ValueError: If the stimulus value is not 1 or 2.
-
+            ValueError: If the period is not one of 'fix', 'delay', 'stim', 'go'
         """
         if stimulus not in [1, 2]:
             raise ValueError("Invalid stimulus value. Should be either 1 or 2.")
+        
+        if period not in ["fix", "delay", "stim", "go"]: 
+            raise ValueError("Invalid period value. Should be one of 'fix', 'delay', 'stim', or 'go'.")
 
         input_tensor = torch.zeros(self.num_inputs)
         if period != "go":
             input_tensor[0] = 1  # Activate the fixation unit
-        if period == "stimulus":
+        if period == "stim":
             input_tensor[stimulus] = 1
 
         return input_tensor
