@@ -1,14 +1,20 @@
 import torch
 from torch import optim
+from torch.autograd.functional import jacobian
 
 import time
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN
 
 from utils.model import run_model
+from utils.task import get_input
+from utils.utils import get_fixed_point_path, get_model
+
+from sklearn.decomposition import PCA
 
 
 def get_all_hiddens(rnn, tasks):
@@ -248,7 +254,60 @@ def get_unique_fixed_points(fixed_points):
         representatives[i] = representative_point
         i += 1
 
-    return torch.from_numpy(representatives)
+    return torch.from_numpy(representatives).float()
+
+
+def compute_jacobian(rnn, hidden_state, input):
+    """Compute the Jacobian of the RNN's hidden state with respect to the input.
+    Args:
+        rnn (MultitaskRNN): The RNN model.
+        hidden_state (torch.Tensor): The hidden state of the RNN.
+        input (torch.Tensor): The input to the RNN.
+
+    Returns:
+        torch.Tensor: The Jacobian matrix.
+    """
+
+    def get_dx(x):
+        # Make sure the tensor has gradient computation
+        x.requires_grad_(True)
+
+        # Update the hidden state with the RNN's state transition function
+        dx = rnn.activation(
+            torch.einsum('ij,j->i', rnn.W_in, input) + torch.einsum('ij,j->i', rnn.W_rec, x) + rnn.b)
+        
+        return dx
+
+    # Compute the Jacobian using automatic differentiation
+    return jacobian(get_dx, hidden_state)
+
+
+def is_stable(rnn, fixed_point, input):
+    """
+    Determines the stability of a fixed point of a recurrent neural network (RNN) given an input. 
+
+    A fixed point is considered stable if the real parts of all the eigenvalues of the Jacobian matrix at the fixed point are less than 1.
+
+    Args:
+        rnn (torch.nn.Module): The RNN model.
+        fixed_point (torch.Tensor): The fixed point to evaluate the stability of. This tensor represents the state of the RNN.
+        input (torch.Tensor): The input provided to the RNN.
+
+    Returns:
+        torch.Tensor: A boolean tensor indicating the stability of the fixed point. Returns True if the fixed point is stable, False otherwise.
+    """
+
+    # Compute the Jacobian matrix at the given fixed point
+    jacobian = compute_jacobian(rnn, fixed_point, input)
+
+    # Compute the eigenvalues of the Jacobian
+    eigenvalues = torch.linalg.eig(jacobian).eigenvalues
+
+    # Extract the real parts of the eigenvalues
+    real_parts = eigenvalues.real
+
+    # Check the stability condition
+    return torch.all(real_parts < 1)
 
 
 
@@ -290,3 +349,111 @@ def plot_pca(data, feature_data, plot_feature_data=False):
     plt.grid(True)
     plt.show()
 
+
+
+def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp, 
+                           input_labels=None, 
+                           title=None, 
+                           figsize=(10, 8), 
+                           cmap='plasma', 
+                           save_fig=None,
+                           s = 100):
+    """
+    Visualize fixed points' first principal component for each interpolated input.
+    
+    Args:
+        model_name (str): Name of the model used to generate the fixed points.
+        task_idx (list of int): List of task indices.
+        period (list of str): List of periods.
+        stimulus (list of int): List of stimuli.
+        n_interp (int): Number of interpolation steps.
+
+    Returns:
+        None
+    """
+    # Load model and tasks
+    rnn, tasks = get_model(model_name)
+
+    # Initialize color map
+    cmap = plt.get_cmap(cmap)
+    color_norm = cm.colors.Normalize(vmin=0, vmax=(len(task_idx)-1)*n_interp)  # Normalize to the range of interpolation steps across all pairs
+
+    plt.figure(figsize=figsize)
+    s = s   # set the size of the plotted points
+
+    # List to store all fixed points
+    all_fixed_points = []
+
+    # Loop over the task pairs
+    for t in range(len(task_idx) - 1):
+
+        # Generate the task inputs
+        input1 = get_input(task_idx[t], period[t], stimulus[t], tasks)
+        input2 = get_input(task_idx[t+1], period[t+1], stimulus[t+1], tasks)
+
+        # Get fixed points for each interpolated input
+        for i in range(n_interp + 1):
+            # Linearly interpolate between the inputs
+            interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
+
+            # Load the fixed points for the interpolated input
+            fixed_point_path = get_fixed_point_path(model_name, interpolated_input)
+            fixed_points = torch.load(fixed_point_path, map_location=torch.device('cpu'))
+
+            # Get unique fixed points
+            unique_fixed_points = get_unique_fixed_points(fixed_points.detach())
+
+            # Add to list
+            all_fixed_points.append(unique_fixed_points)
+
+    # Concatenate all fixed points to fit PCA
+    concat_fixed_points = torch.cat(all_fixed_points, dim=0)
+
+    # Convert to numpy for compatibility with PCA
+    concat_fixed_points_np = concat_fixed_points.detach().numpy()
+
+    # Apply PCA
+    pca = PCA(n_components=1)  # We're only interested in the first principal component
+    pca.fit(concat_fixed_points_np)
+
+    # Plot the first principal component for each interpolated input
+    for t in range(len(task_idx) - 1):
+        
+        # Generate the task inputs
+        input1 = get_input(task_idx[t], period[t], stimulus[t], tasks)
+        input2 = get_input(task_idx[t+1], period[t+1], stimulus[t+1], tasks)
+
+        for i in range(n_interp + 1):
+            # Linearly interpolate between the inputs
+            interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
+            
+            fixed_points_i = all_fixed_points[t*n_interp+i]
+            projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]  # Only consider the first PC
+
+            # Check if each fixed point is stable
+            for fp, proj in zip(fixed_points_i, projections):
+                stable = is_stable(rnn, fp, interpolated_input)
+                if stable:
+                    plt.scatter([(t + i / n_interp)], [proj], color=cmap(color_norm(t*n_interp+i)), edgecolors='none', s=s)
+                else:
+                    plt.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=cmap(color_norm(t*n_interp+i)), s=s)
+    
+    # Draw a vertical line at each integer on the x-axis and optionally add a label
+    for t in range(len(task_idx)):
+        plt.axvline(x=t, linestyle='--', color='gray')
+
+    # Set the xticks to be at the integers, and use your labels
+    if input_labels:
+        plt.xticks(range(len(task_idx)), input_labels, rotation=45)
+            
+    plt.xlabel('Interpolation Step')
+    plt.ylabel('First Principal Component')
+
+    if title:
+        plt.title(title)
+
+    if save_fig:
+        plt.savefig(save_fig)
+
+    else:
+        plt.show()
