@@ -69,4 +69,9 @@ def get_fixed_point_path(model_name, input):
 def get_fixed_points(model_name, input):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     fixed_point_path = get_fixed_point_path(model_name, input)
+
+    # Check if file exists
+    if not os.path.exists(fixed_point_path):
+        raise FileNotFoundError(f"No fixed point file found for input {input} and model {model_name}.")
+
     return torch.load(fixed_point_path, map_location=device)
