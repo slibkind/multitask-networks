@@ -38,7 +38,33 @@ def check_task_compatibility(tasks):
 
     return True
 
-def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
+def compute_loss(rnn, tasks, period_duration, grace_frac):
+    with torch.no_grad():
+        total_loss = 0
+        for task_index, task in enumerate(tasks):
+            # Generate all input sequences for the task
+            input_sequences, output_sequences = task.generate_all_sequences(period_duration=period_duration)
+            input_sequences = add_task_identity(input_sequences, task_index, len(tasks))
+            num_sequences = output_sequences.shape[0]
+
+            # Create mask for the validation set
+            mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
+            mask = mask.repeat(num_sequences, 1, 1)   # Repeat the mask to match the number of sequences
+
+            # Reset the hidden state
+            hidden = rnn.init_hidden(num_sequences)
+
+            # Forward pass on validation set
+            predictions, hidden = rnn(input_sequences, hidden)  # assuming no need for the hidden state
+
+            # Compute validation loss
+            total_loss += F.mse_loss(predictions * mask, output_sequences * mask)
+
+        # Average the loss across tasks
+        total_loss /= len(tasks)
+    return total_loss
+
+def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     """Train the RNN on multiple tasks."""
 
     save_path = get_model_path(model_name)
@@ -50,6 +76,9 @@ def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
 
     min_period = 25
     max_period = 200
+
+    validation_window = 1000
+    val_threshold = 1e-6
 
     grace_frac = 0.1
 
@@ -70,10 +99,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
         start_epoch = 0
 
     # Training loop
-    for epoch in range(start_epoch, start_epoch + epochs):
-
-        # Reset the hidden state
-        hidden = rnn.init_hidden(batch_size)
+    for epoch in range(start_epoch, start_epoch + max_epochs):
 
         # Randomly select a task for the entire batch
         task_index = torch.randint(len(tasks), (1,)).item() 
@@ -112,6 +138,9 @@ def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
         outputs = torch.cat(outputs)
         masks = torch.cat(masks)
 
+        # Reset the hidden state
+        hidden = rnn.init_hidden(batch_size)
+        
         # Forward pass
         predictions, hidden = rnn(inputs, hidden)
 
@@ -161,9 +190,15 @@ def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
             }
             torch.save(model_data, save_path)
 
-        # Print loss every 100 epochs
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}: Loss = {loss.item()}")
+            val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
+            avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_window + max_window)), grace_frac)
+            
+            print(f"Epoch {epoch}: Validation Loss = {val_loss.item()} Average Loss = {avg_loss.item()}")
+
+            # If the validation loss is below the threshold, stop training
+            if val_loss <= val_threshold:
+                print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch}. Stopping training.")
+                break
 
                 
     print("Training complete.")
@@ -173,7 +208,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
 delay_go_task = DelayGo()
 delay_anti_task = DelayAnti()
 
-tasks = [delay_go_task]
+tasks = [delay_go_task, delay_anti_task]
 
 # Initialize RNN model
 model_name = "delaygo_delayanti_64"
@@ -186,6 +221,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-epochs = 200
+max_epochs = 10000
 
-train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams)
+train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
