@@ -193,7 +193,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
             val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
             avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_window + max_window)), grace_frac)
             
-            print(f"Epoch {epoch}: Validation Loss = {val_loss.item()} Average Loss = {avg_loss.item()}")
+            print(f"Epoch {epoch:6d}: Validation Loss = {val_loss.item():.8f} Average Loss = {avg_loss.item():.8f}")
 
             # If the validation loss is below the threshold, stop training
             if val_loss <= val_threshold:
