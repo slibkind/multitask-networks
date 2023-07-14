@@ -25,6 +25,15 @@ def get_model_checkpoint(model_name):
     model_path = get_model_path(model_name)
     return torch.load(model_path)
 
+def load_checkpoint(model_name, model, optimizer):
+    """Load a model and optimizer state from a checkpoint file."""
+    checkpoint = get_model_checkpoint(model_name)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    start_epoch = checkpoint['epoch']
+    
+    return model, optimizer, start_epoch
+
 def get_tasks(model_name):
     model_checkpoint = get_model_checkpoint(model_name)
     return model_checkpoint['tasks']

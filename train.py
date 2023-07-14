@@ -6,8 +6,9 @@ import torch.optim.lr_scheduler as lr_scheduler
 import random
 import math
 import numpy as np
+import os
 
-from utils.utils import get_hparams, get_model_path
+from utils.utils import get_hparams, get_model_path, load_checkpoint
 from utils.model import MultitaskRNN
 from utils.task import add_task_identity
 from tasks import DelayGo, DelayAnti
@@ -37,15 +38,16 @@ def check_task_compatibility(tasks):
 
     return True
 
-def train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path):
+def train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams):
     """Train the RNN on multiple tasks."""
+
+    save_path = get_model_path(model_name)
     
     batch_size = hparams['batch_size']
     learning_rate = hparams['learning_rate']
     sigma_x = hparams['sigma_x']
     alpha = hparams['alpha']
 
-    
     min_period = 25
     max_period = 200
 
@@ -60,8 +62,16 @@ def train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path):
     # Initialize the optimizer and scheduler (if applicable)
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
 
+    # Load the model from checkpoint if exists
+    if os.path.isfile(save_path):
+        rnn, optimizer, start_epoch = load_checkpoint(model_name, rnn, optimizer)
+        print(f"Loaded checkpoint at epoch {start_epoch}")
+    else:
+        start_epoch = 0
+
     # Training loop
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, start_epoch + epochs):
+
         # Reset the hidden state
         hidden = rnn.init_hidden(batch_size)
 
@@ -145,6 +155,8 @@ def train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path):
         if epoch % 100 == 0:
             model_data = {
                 'model_state_dict': rnn.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'epoch': epoch,
                 'tasks': tasks
             }
             torch.save(model_data, save_path)
@@ -164,17 +176,16 @@ delay_anti_task = DelayAnti()
 tasks = [delay_go_task]
 
 # Initialize RNN model
-model_name = "delaygo_delayanti_test"
+model_name = "delaygo_delayanti_64"
 hparams = get_hparams(model_name)
 
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
 num_outputs = tasks[0].num_outputs
-num_hidden = 256
+num_hidden = hparams['num_hidden']
 
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-epochs = 10000
-save_path = get_model_path(model_name)
+epochs = 200
 
-train_rnn_on_tasks(rnn, tasks, epochs, hparams, save_path)
+train_rnn_on_tasks(model_name, rnn, tasks, epochs, hparams)
