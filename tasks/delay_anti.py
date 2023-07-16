@@ -10,10 +10,10 @@ class DelayAnti(Task):
     def __init__(self, grace_frac=0.):
 
         super().__init__(
-            name="DelayAnti",
-            periods=["fixation", "stimulus_on", "delay", "go"],
-            num_inputs=3,
-            num_outputs=3
+            name = "DelayAnti",
+            periods = ["fix", "stim", "delay", "go"],
+            num_inputs = 3,
+            num_outputs = 3
         )
 
 
@@ -36,7 +36,7 @@ class DelayAnti(Task):
         if stimulus not in [1, 2]:
             raise ValueError("Invalid stimulus value. Should be either 1 or 2.")
         
-        if period not in ["fix", "delay", "stim", "go"]: 
+        if period not in ["fix", "stim", "delay", "go"]: 
             raise ValueError("Invalid period value. Should be one of 'fix', 'delay', 'stim', or 'go'.")
 
         input_tensor = torch.zeros(self.num_inputs)
