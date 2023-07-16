@@ -7,6 +7,7 @@ import random
 import math
 import numpy as np
 import os
+from tqdm import tqdm 
 
 from utils.utils import get_hparams, get_model_path, load_checkpoint
 from utils.model import MultitaskRNN
@@ -101,9 +102,12 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
     # Initialize best validation loss as infinity
     best_val_loss = float('inf')
+
+    # Initialize the progress bar
+    progress_bar = tqdm(range(max_epochs))
     
     # Training loop
-    for epoch in range(start_epoch, start_epoch + max_epochs):
+    for epoch in progress_bar:
 
         # Randomly select a task for the entire batch
         task_index = torch.randint(len(tasks), (1,)).item() 
@@ -190,13 +194,14 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
             val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
             avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_period + max_period)), grace_frac)
             
-            print(f"Epoch {epoch:6d}: Validation Loss = {val_loss.item():.8f} Average Loss = {avg_loss.item():.8f}")
+            # Update progress bar
+            progress_bar.set_postfix({'Validation Loss': val_loss.item(), 'Average Loss': avg_loss.item()})
 
             # Save the current state of the model as the 'latest' model
             model_data = {
                 'model_state_dict': rnn.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch,
+                'epoch': epoch + start_epoch,
                 'tasks': tasks
             }
             torch.save(model_data, save_path_latest)
@@ -207,11 +212,10 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
             # If validation loss below threshold, stop training
             if val_loss <= val_threshold:
-                print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch}. Stopping training.")
+                print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch + start_epoch}. Stopping training.")
                 break
 
 
-                
     print("Training reached maximum epochs.")
         
 
@@ -232,6 +236,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 100000
+max_epochs = 1000
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
