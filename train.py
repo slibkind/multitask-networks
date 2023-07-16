@@ -222,7 +222,7 @@ delay_anti_task = DelayAnti()
 tasks = [delay_go_task, delay_anti_task]
 
 # Initialize RNN model
-model_name = "delaygo_delayanti_64"
+model_name = "delaygo_delayanti_256"
 hparams = get_hparams(model_name)
 
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
