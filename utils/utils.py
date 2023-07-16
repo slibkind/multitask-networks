@@ -18,28 +18,30 @@ def get_hparams(model_name):
 def get_model_dir(model_name):
     return os.path.join(model_dir, model_name)
 
-def get_model_path(model_name):
+def get_model_path(model_name, latest = False):
+    if latest:
+        return os.path.join(model_dir, model_name, "model_latest.pt")
     return os.path.join(model_dir, model_name, "model.pt")
 
-def get_model_checkpoint(model_name):
-    model_path = get_model_path(model_name)
+def get_model_checkpoint(model_name, latest = False):
+    model_path = get_model_path(model_name, latest)
     return torch.load(model_path)
 
-def load_checkpoint(model_name, model, optimizer):
+def load_checkpoint(model_name, model, optimizer, latest = False):
     """Load a model and optimizer state from a checkpoint file."""
-    checkpoint = get_model_checkpoint(model_name)
+    checkpoint = get_model_checkpoint(model_name, latest)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch']
     
     return model, optimizer, start_epoch
 
-def get_tasks(model_name):
-    model_checkpoint = get_model_checkpoint(model_name)
+def get_tasks(model_name, latest = False):
+    model_checkpoint = get_model_checkpoint(model_name, latest)
     return model_checkpoint['tasks']
 
-def get_model(model_name):
-    model_checkpoint = get_model_checkpoint(model_name)
+def get_model(model_name, latest = False):
+    model_checkpoint = get_model_checkpoint(model_name, latest)
     model_state_dict = model_checkpoint['model_state_dict']
     tasks = model_checkpoint['tasks']
 
