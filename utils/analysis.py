@@ -6,6 +6,7 @@ import time
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
+import os
 
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN
@@ -219,6 +220,12 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
 
         iteration += 1
 
+        # Check if all local minima were "bad" and all have been removed
+        if hidden.numel() == 0:
+            if verbose:
+                print("Stopping optimization: all local minima were 'bad' and have been removed.")
+            break
+
         if torch.max(speed_per_init_cond).item() < q_thresh: 
             if verbose:
                 print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
@@ -230,6 +237,44 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
             break
 
     return hidden
+
+def get_fixed_points(model_name, input, q_thresh = None):
+    """
+    Load fixed points from a file and optionally filter them based on their speeds.
+
+    This function loads fixed points for a given model and input from a file. If a speed threshold `q_thresh` is set,
+    it filters the fixed points to only include those with speeds below the threshold.
+
+    Args:
+        model_name (str): The name of the model for which to load fixed points.
+        model (nn.Module): The actual model instance used for computing speeds if `q_thresh` is provided.
+        input (torch.Tensor): The input sequence. Used for computing speeds if `q_thresh` is provided.
+        q_thresh (float, optional): A speed threshold. If set, only fixed points with speeds below this threshold 
+            are returned. Defaults to None, in which case all fixed points are returned.
+
+    Returns:
+        torch.Tensor: A tensor containing the loaded fixed points. If `q_thresh` is set, this tensor only includes 
+            fixed points with speeds below the threshold.
+            
+    Raises:
+        FileNotFoundError: If no fixed point file is found for the given model and input.
+    """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    fixed_point_path = get_fixed_point_path(model_name, input)
+
+    # Check if file exists
+    if not os.path.exists(fixed_point_path):
+        raise FileNotFoundError(f"No fixed point file found for input {input} and model {model_name}.")
+
+    fixed_points = torch.load(fixed_point_path, map_location=device)
+    
+    # If q_thresh is set, filter the fixed points based on their speeds
+    if q_thresh is not None:
+        rnn, _ = get_model(model_name)
+        speeds = get_speed(rnn, input, fixed_points)
+        fixed_points = fixed_points[speeds < q_thresh]
+
+    return fixed_points
 
 def get_unique_fixed_points(fixed_points):
     """
@@ -394,6 +439,7 @@ def plot_hiddens_and_data(rnn, tasks, data_list, label_list=None, color_list=Non
 
 
 def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp, 
+                           q_thresh=None,
                            input_labels=None, 
                            title=None, 
                            figsize=(10, 8), 
@@ -421,6 +467,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
     color_norm = cm.colors.Normalize(vmin=0, vmax=(len(task_idx)-1)*n_interp)  # Normalize to the range of interpolation steps across all pairs
 
     plt.figure(figsize=figsize)
+
     s = s   # set the size of the plotted points
 
     # List to store all fixed points
@@ -439,8 +486,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
             interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
 
             # Load the fixed points for the interpolated input
-            fixed_point_path = get_fixed_point_path(model_name, interpolated_input)
-            fixed_points = torch.load(fixed_point_path, map_location=torch.device('cpu'))
+            fixed_points = get_fixed_points(model_name, interpolated_input, q_thresh=q_thresh)
 
             # Get unique fixed points
             unique_fixed_points = get_unique_fixed_points(fixed_points.detach())
