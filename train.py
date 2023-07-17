@@ -70,6 +70,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
     save_path = get_model_path(model_name)
     save_path_latest = get_model_path(model_name, latest = True)
+    save_interval = 500  # Save the model every 500 epochs
     
     batch_size = hparams['batch_size']
     learning_rate = hparams['learning_rate']
@@ -80,7 +81,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     max_period = 200
 
     validation_window = 1000
-    val_threshold = 1e-6
+    val_threshold = 1e-3
 
     grace_frac = 0.1
 
@@ -125,8 +126,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         for i in range(batch_size):
             
             # Define the smoothing window
-            min_window = 1 #int(0.1 * period_duration)
-            max_window = 20 #int(0.5 * period_duration)
+            min_window = int(0.02 * period_duration) # 1
+            max_window = int(0.4 * period_duration) # 20
             smoothing_window = random.randint(min_window, max_window)
 
             # Generate a batch of sequences for the task with the selected smoothing window
@@ -188,6 +189,16 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         # Optimization
         optimizer.step()
 
+        # Save the current state of the model as the 'latest' model
+        model_data = {
+            'model_state_dict': rnn.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'epoch': epoch + start_epoch,
+            'tasks': tasks
+        }
+        torch.save(model_data, save_path_latest)
+
+
         # Compute and print validation and average losses every 100 epochs
         if epoch % 100 == 0:
             
@@ -197,15 +208,6 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
             # Update progress bar
             progress_bar.set_postfix({'Validation Loss': val_loss.item(), 'Average Loss': avg_loss.item()})
 
-            # Save the current state of the model as the 'latest' model
-            model_data = {
-                'model_state_dict': rnn.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch + start_epoch,
-                'tasks': tasks
-            }
-            torch.save(model_data, save_path_latest)
-
             # If validation loss improved, save the model state
             if val_loss < best_val_loss:
                 torch.save(model_data, save_path)
@@ -213,8 +215,12 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
             # If validation loss below threshold, stop training
             if val_loss <= val_threshold:
                 print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch + start_epoch}. Stopping training.")
-                break
-
+                return
+            
+        if epoch % save_interval == 0:
+            # Save the model every "save_interval" epochs
+            interval_save_path = get_model_path(model_name, epoch=epoch+start_epoch)
+            torch.save(model_data, interval_save_path)
 
     print("Training reached maximum epochs.")
         
@@ -236,6 +242,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 1000
+max_epochs = 100000
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
