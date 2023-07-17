@@ -18,18 +18,19 @@ if torch.cuda.is_available():
 
 
 # Model configuration
-model_name = "delaygo_delayanti_255"
+model_name = "delaygo_delayanti_256"
 
 # Define task details
 task_details = [
-    ([0, 0], ["stim", "delay"], [1, 1]),    # run through the delaygo task with stimulus 1
+    ([0, 0], ["stim", "delay"], [1, 1]),   # run through the delaygo task with stimulus 1
     ([0, 0], ["delay", "go"], [1, 1]),
-    ([0, 0], ["delay", "delay"], [1, 2]), # compare stim 1 and 2 in delaygo task
-    ([0, 0], ["stim", "delay"], [2, 2]),
-    ([0, 1], ["delay", "delay"], [1, 1]),  # compare delaygo vs. delayanti tasks
-    ([0, 1], ["delay", "delay"], [2, 2]),    
-    ([1, 1], ["stim", "delay"], [1, 1]),
-    ([1, 1], ["stim", "delay"], [2, 2])
+    ([1, 1], ["stim", "delay"], [1, 1]),   # run through the delayanti task with stimulus 1
+    ([1, 1], ["delay", "go"], [1, 1]),
+    ([0, 0], ["stim", "delay"], [2, 2]),   # run through the delaygo task with stimulus 2
+    ([0, 0], ["delay", "go"], [2, 2]),
+    ([1, 1], ["stim", "delay"], [2, 2]),   # run through the delayanti task with stimulus 2
+    ([1, 1], ["delay", "go"], [2, 2]),
+    ([0, 1], ["delay", "delay"], [1, 1])   # compare delay periods in delaygo vs. delayanti tasks
 ]
 
 
@@ -39,7 +40,7 @@ n_interp = 20
 # Parameters for finding fixed points
 learning_rate = 0.1
 speed_threshold = 1e-6
-sample_proportion = 0.1   # proportion of all hidden states to be sampled
+sample_proportion = 0.5   # proportion of all hidden states to be sampled
 
 # Get the analysis path
 analysis_path = get_analysis_path(model_name)
@@ -91,3 +92,4 @@ for task_idx, period, stimulus in task_details:
     
         print(f"Fixed points saved at {fixed_point_path}\n")
 
+        
