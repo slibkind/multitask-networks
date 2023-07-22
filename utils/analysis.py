@@ -487,9 +487,12 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
 
             # Load the fixed points for the interpolated input
             fixed_points = get_fixed_points(model_name, interpolated_input, q_thresh=q_thresh)
-
+            
             # Get unique fixed points
-            unique_fixed_points = get_unique_fixed_points(fixed_points.detach())
+            if fixed_points.numel() > 0:
+                unique_fixed_points = get_unique_fixed_points(fixed_points.detach())
+            else:
+                unique_fixed_points = fixed_points
 
             # Add to list
             all_fixed_points.append(unique_fixed_points)
@@ -516,6 +519,9 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
             interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
             
             fixed_points_i = all_fixed_points[t*n_interp+i]
+            if fixed_points_i.numel() == 0: 
+                    continue
+            
             projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]  # Only consider the first PC
 
             # Check if each fixed point is stable
