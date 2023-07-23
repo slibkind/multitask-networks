@@ -115,11 +115,15 @@ def get_speed(model, input, hidden, duplicate_input=True):
     return speed
 
     
-def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_iterations=None, verbose=True, method='first', grad_threshold=1e-4, check_interval=10000):
+def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, patience=1000, max_iterations=None, verbose=True, method='first', check_interval=10000):
     """
     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
     exploration of the hidden state space.
+
+    The function continues the gradient descent on the speed and stops when the maximum gradient norm 
+    across all initial conditions is below a specified threshold, indicating that all points have 
+    reached a local minimum.
 
     Args:
         model (nn.Module): The multitask RNN model.
@@ -127,9 +131,11 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
         initial_hidden (torch.Tensor): The initial hidden states of shape (num_initial_conditions, num_hidden).
             Each row corresponds to the initial hidden state for a different initial condition.
         learning_rate (float): Learning rate for gradient descent.
-        q_thresh (float): A threshold for the speed. The optimization stops if the maximum speed across all initial conditions is less than this threshold.
+        grad_threshold (float): A threshold for the gradient norm. The optimization stops if the maximum gradient norm across all initial conditions is less than this threshold.
+        patience (int, optional): The number of check intervals with no improvement in grad_norm after which the function stops. If None, the function runs indefinitely until the condition is met. Defaults to 1000.
         max_iterations (int, optional): The maximum number of iterations to run the optimization. If None, the optimization runs indefinitely until the condition is met.
-        grad_threshold (float, optional): The threshold for the gradient norm at which we consider a hidden state to have reached a local minimum. Defaults to 1e-4.
+        verbose (bool, optional): If True, print progress messages. Defaults to True.
+        method (str, optional): The optimization method to use. Should be either 'first' (for first-order optimization, using SGD) or 'second' (for second-order optimization, using LBFGS). Defaults to 'first'.
         check_interval (int, optional): The number of iterations between checks for local minima. Defaults to 10000.
 
     Returns:
@@ -159,11 +165,15 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
         raise ValueError("Unknown method: {}. Use 'first' or 'second'.".format(method))
 
     iteration = 0
+
+    no_improve_iter = 0
+    best_grad_norm = float('inf')
+
     start_time = time.time()
 
     while True:
         speed_per_init_cond = None
-        
+
         def closure():
             nonlocal speed_per_init_cond
             optimizer.zero_grad()
@@ -179,7 +189,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
 
             # Backward pass to compute the gradients
             total_speed.backward()
-            
+
             return total_speed
 
         # Depending on the method, the optimizer step is different
@@ -189,56 +199,46 @@ def minimize_speed(model, input, initial_hidden, learning_rate, q_thresh, max_it
         elif method.lower() == 'second':
             optimizer.step(closure)
 
-        # Every check_interval iterations, check if any hidden states have reached a local minimum with speed above the threshold
-        if iteration % check_interval == 0:
-            # Get the current gradients
-            grad_norms = torch.norm(hidden.grad.data, dim=1)
-
-            # Find which hidden states are in a local minimum (i.e., their gradient norm is below the threshold)
-            local_minima = grad_norms < grad_threshold
-
-            # If any hidden states are in a local minimum, check their speed
-            if torch.any(local_minima):
-                speed_per_init_cond = get_speed(model, input, hidden.detach())
-                # Find which of these hidden states have speed above the threshold
-                bad_local_minima = local_minima & (speed_per_init_cond > q_thresh)
-
-                # If any hidden states are in a bad local minimum, remove them
-                if torch.any(bad_local_minima):
-                    if verbose: 
-                        num_bad_minima = bad_local_minima.sum().item()
-                        print(f"Removing {num_bad_minima} bad local minima at iteration {iteration}.")
-                    good_indices = ~bad_local_minima
-                    hidden = hidden[good_indices].clone().detach().requires_grad_(True)
-                    inputs = input.repeat(hidden.shape[0], 1)
+        # Get the current gradients
+        grad_norms = torch.norm(hidden.grad.data, dim=1)
+        max_grad_norm = torch.max(grad_norms).item()
         
+        # Every check_interval iterations, check if any hidden states have reached a local minimum (i.e., their gradient norm is below the threshold)
         if verbose and iteration % check_interval == 0:
             elapsed_time = time.time() - start_time
-            print(f"Iteration {iteration}: maximum speed across all initial conditions is {torch.max(speed_per_init_cond).item()}")
-            print(f"Time taken for the last 10000 iterations: {elapsed_time} seconds.")
+            print(f"Iteration {iteration}: maximum gradient norm across all initial conditions is {max_grad_norm}")
+            print(f"Time taken for the last {check_interval} iterations: {elapsed_time} seconds.")
             start_time = time.time()
 
-        iteration += 1
+        # Update the best grad norm
+        if max_grad_norm < best_grad_norm:
+            best_grad_norm = max_grad_norm
+            no_improve_iter = 0  # reset counter
+        else:
+            no_improve_iter += 1
 
-        # Check if all local minima were "bad" and all have been removed
-        if hidden.numel() == 0:
+        # Stopping condition: If the grad_norm hasn't improved for 'patience' checks, stop the optimization
+        if no_improve_iter >= patience:
             if verbose:
-                print("Stopping optimization: all local minima were 'bad' and have been removed.")
+                print(f"Stopping optimization: grad_norm has not improved for {patience} checks.")
             break
 
-        if torch.max(speed_per_init_cond).item() < q_thresh: 
+        # Stopping condition: if maximum gradient norm across all initial conditions is below the threshold
+        if max_grad_norm < grad_threshold:
             if verbose:
-                print("Stopping optimization: maximum speed across all initial conditions is below the threshold.")
+                print(f"Stopping optimization: maximum gradient norm across all initial conditions is below the threshold.")
             break
 
         if max_iterations is not None and iteration >= max_iterations:
             if verbose:
                 print(f"Stopping optimization: reached maximum number of iterations ({max_iterations}).")
             break
+        
+        iteration += 1
 
     return hidden
 
-def get_fixed_points(model_name, input, q_thresh = None):
+def get_fixed_points(model_name, input, q_thresh = None, unique = False):
     """
     Load fixed points from a file and optionally filter them based on their speeds.
 
@@ -251,6 +251,7 @@ def get_fixed_points(model_name, input, q_thresh = None):
         input (torch.Tensor): The input sequence. Used for computing speeds if `q_thresh` is provided.
         q_thresh (float, optional): A speed threshold. If set, only fixed points with speeds below this threshold 
             are returned. Defaults to None, in which case all fixed points are returned.
+        unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
 
     Returns:
         torch.Tensor: A tensor containing the loaded fixed points. If `q_thresh` is set, this tensor only includes 
@@ -267,14 +268,40 @@ def get_fixed_points(model_name, input, q_thresh = None):
         raise FileNotFoundError(f"No fixed point file found for input {input} and model {model_name}.")
 
     fixed_points = torch.load(fixed_point_path, map_location=device)
-    
-    # If q_thresh is set, filter the fixed points based on their speeds
-    if q_thresh is not None:
-        rnn, _ = get_model(model_name)
-        speeds = get_speed(rnn, input, fixed_points)
-        fixed_points = fixed_points[speeds < q_thresh]
 
+    return filter_fixed_points(model_name, fixed_points, q_thresh, unique)
+
+
+def filter_fixed_points(model_name, fixed_points, q_thresh=None, unique=False):
+    """
+    Filter out the fixed points of an RNN model based on their speed and uniqueness.
+    
+    The speed of a fixed point is computed using the get_speed function, and 
+    fixed points with speed less than q_thresh are retained. If unique=True, 
+    duplicate fixed points are removed using the get_unique_fixed_points function.
+
+    Args:
+        model_name (str): Name of the RNN model.
+        fixed_points (torch.Tensor): Tensor containing the fixed points to be filtered.
+        q_thresh (float, optional): Threshold for speed. Fixed points with speed less than q_thresh are retained. If None, no speed filtering is performed. Default is None.
+        unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
+
+    Returns:
+        torch.Tensor: Filtered fixed points.
+
+    Raises:
+        FileNotFoundError: If the model cannot be loaded from the specified model_name.
+    """
+    rnn, _ = get_model(model_name)
+    if q_thresh is not None: 
+        speeds = get_speed(rnn, input, fixed_points)
+        fixed_points = fixed_points[speeds < q_thresh] 
+    if unique:
+        fixed_points = get_unique_fixed_points(fixed_points)
+    
     return fixed_points
+
+    
 
 def get_unique_fixed_points(fixed_points):
     """
