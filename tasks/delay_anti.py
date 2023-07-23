@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 from .base_task import Task
-from utils import smooth_sequence
+from utils.task import smooth_sequence
 
 
 class DelayAnti(Task):

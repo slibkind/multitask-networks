@@ -1,1 +1,0 @@
-from .task import smooth_sequence
