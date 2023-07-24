@@ -238,7 +238,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
 
     return hidden
 
-def get_fixed_points(model_name, input, q_thresh = None, unique = False):
+def get_fixed_points(model_name, input, q_thresh = None, unique = False, eps = 0.3):
     """
     Load fixed points from a file and optionally filter them based on their speeds.
 
@@ -252,6 +252,7 @@ def get_fixed_points(model_name, input, q_thresh = None, unique = False):
         q_thresh (float, optional): A speed threshold. If set, only fixed points with speeds below this threshold 
             are returned. Defaults to None, in which case all fixed points are returned.
         unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
+        eps (float, optional): The maximum distance between two samples for them to be considered as in the same neighborhood. This parameter is used only when unique=True. Default is 0.3.
 
     Returns:
         torch.Tensor: A tensor containing the loaded fixed points. If `q_thresh` is set, this tensor only includes 
@@ -267,12 +268,12 @@ def get_fixed_points(model_name, input, q_thresh = None, unique = False):
     if not os.path.exists(fixed_point_path):
         raise FileNotFoundError(f"No fixed point file found for input {input} and model {model_name}.")
 
-    fixed_points = torch.load(fixed_point_path, map_location=device)
+    fixed_points = torch.load(fixed_point_path, map_location=device).detach()
 
-    return filter_fixed_points(model_name, fixed_points, q_thresh, unique)
+    return filter_fixed_points(model_name, input, fixed_points, q_thresh=q_thresh, unique=unique, eps=eps)
 
 
-def filter_fixed_points(model_name, fixed_points, q_thresh=None, unique=False):
+def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=False, eps=0.3):
     """
     Filter out the fixed points of an RNN model based on their speed and uniqueness.
     
@@ -282,12 +283,14 @@ def filter_fixed_points(model_name, fixed_points, q_thresh=None, unique=False):
 
     Args:
         model_name (str): Name of the RNN model.
+        input (torch.Tensor): The input provided to the RNN.
         fixed_points (torch.Tensor): Tensor containing the fixed points to be filtered.
         q_thresh (float, optional): Threshold for speed. Fixed points with speed less than q_thresh are retained. If None, no speed filtering is performed. Default is None.
-        unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
+        unique (bool, optional): If True, duplicate fixed points are removed using DBSCAN clustering algorithm. Default is False.
+        eps (float, optional): The maximum distance between two samples for them to be considered as in the same neighborhood. This parameter is used only when unique=True. Default is 0.3.
 
     Returns:
-        torch.Tensor: Filtered fixed points.
+        Tuple[torch.Tensor, torch.Tensor]: Two tensors containing the filtered stable and unstable fixed points, respectively.
 
     Raises:
         FileNotFoundError: If the model cannot be loaded from the specified model_name.
@@ -296,14 +299,24 @@ def filter_fixed_points(model_name, fixed_points, q_thresh=None, unique=False):
     if q_thresh is not None: 
         speeds = get_speed(rnn, input, fixed_points)
         fixed_points = fixed_points[speeds < q_thresh] 
+
+    # Calculate stability of each fixed point
+    stability = torch.tensor([is_stable(rnn, point, input) for point in fixed_points], dtype=torch.bool, device=fixed_points.device)
+
+    # Split fixed points into stable and unstable
+    stable_points = fixed_points[stability]
+    unstable_points = fixed_points[~stability]
+
     if unique:
-        fixed_points = get_unique_fixed_points(fixed_points)
+        stable_points = get_unique_fixed_points(stable_points, eps)
+        unstable_points = get_unique_fixed_points(unstable_points, eps)
     
-    return fixed_points
+    return stable_points, unstable_points
+
 
     
 
-def get_unique_fixed_points(fixed_points):
+def get_unique_fixed_points(fixed_points, eps = 0.3):
     """
     Apply DBSCAN clustering algorithm on given fixed points to find unique fixed points.
 
@@ -313,16 +326,20 @@ def get_unique_fixed_points(fixed_points):
 
     Args:
         fixed_points (torch.Tensor): Input tensor containing fixed points.
+        eps (float, optional): The maximum distance between two samples for them to be considered as in the same neighborhood.
 
     Returns:
         torch.Tensor: A tensor containing the representative fixed points.
     """
 
+    if fixed_points.numel() == 0: 
+        return fixed_points
+
     # Convert to numpy for compatibility with DBSCAN
     fixed_points_np = fixed_points.numpy()
 
     # Apply DBSCAN
-    dbscan = DBSCAN(eps=0.3, min_samples=1)  # You may want to adjust these parameters
+    dbscan = DBSCAN(eps=eps, min_samples=1)  # You may want to adjust these parameters
     dbscan.fit(fixed_points_np)
 
     # Group fixed points into clusters and calculate eigenvalues for each unique point
@@ -467,6 +484,7 @@ def plot_hiddens_and_data(rnn, tasks, data_list, label_list=None, color_list=Non
 
 def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp, 
                            q_thresh=None,
+                           eps=0.3,
                            input_labels=None, 
                            title=None, 
                            figsize=(10, 8), 
@@ -482,6 +500,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
         period (list of str): List of periods.
         stimulus (list of int): List of stimuli.
         n_interp (int): Number of interpolation steps.
+        eps (float, optional): The maximum distance between two fixed points for them to be considered as in the same neighborhood. Default is 0.3.
 
     Returns:
         None
@@ -497,8 +516,9 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
 
     s = s   # set the size of the plotted points
 
-    # List to store all fixed points
-    all_fixed_points = []
+    # Lists to store all fixed points
+    all_stable_fixed_points = []
+    all_unstable_fixed_points = []
 
     # Loop over the task pairs
     for t in range(len(task_idx) - 1):
@@ -513,52 +533,44 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
             interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
 
             # Load the fixed points for the interpolated input
-            fixed_points = get_fixed_points(model_name, interpolated_input, q_thresh=q_thresh)
+            stable_fixed_points, unstable_fixed_points = get_fixed_points(model_name, interpolated_input, q_thresh=q_thresh, unique=True, eps=eps)
             
-            # Get unique fixed points
-            if fixed_points.numel() > 0:
-                unique_fixed_points = get_unique_fixed_points(fixed_points.detach())
-            else:
-                unique_fixed_points = fixed_points
-
-            # Add to list
-            all_fixed_points.append(unique_fixed_points)
+            # Add to lists
+            all_stable_fixed_points.append(stable_fixed_points)
+            all_unstable_fixed_points.append(unstable_fixed_points)
 
     # Concatenate all fixed points to fit PCA
-    concat_fixed_points = torch.cat(all_fixed_points, dim=0)
+    concat_stable_fixed_points = torch.cat(all_stable_fixed_points, dim=0)
+    concat_unstable_fixed_points = torch.cat(all_unstable_fixed_points, dim=0)
+
+    # Combine both stable and unstable fixed points
+    combined_fixed_points = torch.cat([concat_stable_fixed_points, concat_unstable_fixed_points], dim=0)
 
     # Convert to numpy for compatibility with PCA
-    concat_fixed_points_np = concat_fixed_points.detach().numpy()
+    combined_fixed_points_np = combined_fixed_points.detach().numpy()
 
     # Apply PCA
     pca = PCA(n_components=1)  # We're only interested in the first principal component
-    pca.fit(concat_fixed_points_np)
+    pca.fit(combined_fixed_points_np)
 
     # Plot the first principal component for each interpolated input
-    for t in range(len(task_idx) - 1):
+    for all_fixed_points, is_stable in zip([all_stable_fixed_points, all_unstable_fixed_points], [True, False]):
+        for t in range(len(task_idx) - 1):
+            for i in range(n_interp + 1):            
+                fixed_points_i = all_fixed_points[t*n_interp+i]
+
+                if fixed_points_i.numel() == 0: 
+                        continue
+                
+                projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]  # Only consider the first PC
+                color = cmap(color_norm(t*n_interp+i))
+
+                for proj in projections:
+                    if is_stable:
+                        plt.scatter([(t + i / n_interp)], [proj], color=color, edgecolors=color, s=s)
+                    else:
+                        plt.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=color, s=s)
         
-        # Generate the task inputs
-        input1 = get_input(task_idx[t], period[t], stimulus[t], tasks)
-        input2 = get_input(task_idx[t+1], period[t+1], stimulus[t+1], tasks)
-
-        for i in range(n_interp + 1):
-            # Linearly interpolate between the inputs
-            interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
-            
-            fixed_points_i = all_fixed_points[t*n_interp+i]
-            if fixed_points_i.numel() == 0: 
-                    continue
-            
-            projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]  # Only consider the first PC
-
-            # Check if each fixed point is stable
-            for fp, proj in zip(fixed_points_i, projections):
-                stable = is_stable(rnn, fp, interpolated_input)
-                if stable:
-                    plt.scatter([(t + i / n_interp)], [proj], color=cmap(color_norm(t*n_interp+i)), edgecolors='none', s=s)
-                else:
-                    plt.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=cmap(color_norm(t*n_interp+i)), s=s)
-    
     # Draw a vertical line at each integer on the x-axis and optionally add a label
     for t in range(len(task_idx)):
         plt.axvline(x=t, linestyle='--', color='gray')
