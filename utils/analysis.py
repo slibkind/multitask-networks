@@ -487,10 +487,9 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
                            eps=0.3,
                            input_labels=None, 
                            title=None, 
-                           figsize=(10, 8), 
                            cmap='plasma', 
-                           save_fig=None,
-                           s = 100):
+                           s = 100,
+                           ax=None):
     """
     Visualize fixed points' first principal component for each interpolated input.
     
@@ -500,25 +499,34 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
         period (list of str): List of periods.
         stimulus (list of int): List of stimuli.
         n_interp (int): Number of interpolation steps.
+        q_thresh (float, optional): Quasi-potential energy threshold. Default is None.
         eps (float, optional): The maximum distance between two fixed points for them to be considered as in the same neighborhood. Default is 0.3.
-
+        input_labels (list of str, optional): Labels for the input tasks. Default is None.
+        title (str, optional): Title for the plot. Default is None.
+        cmap (str, optional): Color map to use for the plot. Default is 'plasma'.
+        s (int, optional): Size of the plotted points. Default is 100.
+        ax (matplotlib.axes.Axes, optional): Axes object to draw the plot onto, if None is provided a new figure and axes will be created. Default is None.
+        
     Returns:
-        None
+        ax (matplotlib.axes.Axes): Axes object with the plot.
     """
+
     # Load model and tasks
-    rnn, tasks = get_model(model_name)
+    _, tasks = get_model(model_name)
 
     # Initialize color map
     cmap = plt.get_cmap(cmap)
-    color_norm = cm.colors.Normalize(vmin=0, vmax=(len(task_idx)-1)*n_interp)  # Normalize to the range of interpolation steps across all pairs
-
-    plt.figure(figsize=figsize)
+    color_norm = cm.colors.Normalize(vmin=0, vmax=(len(task_idx)-1)*n_interp)
 
     s = s   # set the size of the plotted points
 
     # Lists to store all fixed points
     all_stable_fixed_points = []
     all_unstable_fixed_points = []
+
+    # Create a new figure if no axes object was provided
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 8))
 
     # Loop over the task pairs
     for t in range(len(task_idx) - 1):
@@ -549,8 +557,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
     # Convert to numpy for compatibility with PCA
     combined_fixed_points_np = combined_fixed_points.detach().numpy()
 
-    # Apply PCA
-    pca = PCA(n_components=1)  # We're only interested in the first principal component
+    pca = PCA(n_components=1)
     pca.fit(combined_fixed_points_np)
 
     # Plot the first principal component for each interpolated input
@@ -562,31 +569,28 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
                 if fixed_points_i.numel() == 0: 
                         continue
                 
-                projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]  # Only consider the first PC
+                projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]
                 color = cmap(color_norm(t*n_interp+i))
 
                 for proj in projections:
                     if is_stable:
-                        plt.scatter([(t + i / n_interp)], [proj], color=color, edgecolors=color, s=s)
+                        ax.scatter([(t + i / n_interp)], [proj], color=color, edgecolors=color, s=s)
                     else:
-                        plt.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=color, s=s)
-        
+                        ax.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=color, s=s)
+
     # Draw a vertical line at each integer on the x-axis and optionally add a label
     for t in range(len(task_idx)):
-        plt.axvline(x=t, linestyle='--', color='gray')
+        ax.axvline(x=t, linestyle='--', color='gray')
 
     # Set the xticks to be at the integers, and use your labels
     if input_labels:
-        plt.xticks(range(len(task_idx)), input_labels, rotation=45)
+        ax.set_xticks(range(len(task_idx)))
+        ax.set_xticklabels(input_labels, rotation=45)
             
-    plt.xlabel('Interpolation Step')
-    plt.ylabel('First Principal Component')
+    ax.set_xlabel('Interpolation Step')
+    ax.set_ylabel('First Principal Component')
 
     if title:
-        plt.title(title)
+        ax.set_title(title)
 
-    if save_fig:
-        plt.savefig(save_fig)
-
-    else:
-        plt.show()
+    return ax   # Return the axes object for further manipulation
