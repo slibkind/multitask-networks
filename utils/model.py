@@ -118,7 +118,7 @@ class MultitaskRNN(nn.Module):
         return outputs, hidden_states
 
 
-def run_model(rnn, tasks, task_index, period_duration=50):
+def run_model(rnn, tasks, task_index, period_duration=50, smoothing_window = 1):
     """
     Runs the RNN model on the input sequences for a specific task and returns the inputs, outputs, output trajectory,
     and hidden trajectory.
@@ -139,7 +139,7 @@ def run_model(rnn, tasks, task_index, period_duration=50):
     task = tasks[task_index]
 
     # Generate all input sequences for the task
-    input_sequences, output_sequences = task.generate_all_sequences(period_duration=period_duration)
+    input_sequences, output_sequences = task.generate_all_sequences(period_duration=period_duration, smoothing_window=smoothing_window)
     input_sequences = add_task_identity(input_sequences, task_index, len(tasks))
 
     # Initialize the hidden state
@@ -152,7 +152,7 @@ def run_model(rnn, tasks, task_index, period_duration=50):
 
 
 
-def plot_behavior(rnn, tasks, period_duration=50):
+def plot_behavior(rnn, tasks, period_duration=50, smoothing_window=1):
     """
     Plot the behavior of a trained recurrent neural network (RNN) on different tasks.
 
@@ -172,7 +172,7 @@ def plot_behavior(rnn, tasks, period_duration=50):
     # Iterate over each task
     for task_index in range(len(tasks)):
         task_name = tasks[task_index].__class__.__name__
-        inputs, outputs, output_pred, _ = run_model(rnn, tasks, task_index, period_duration)
+        inputs, outputs, output_pred, _ = run_model(rnn, tasks, task_index, period_duration=period_duration, smoothing_window=smoothing_window)
 
         # Iterate over each input sequence
         for i in range(inputs.shape[0]):
