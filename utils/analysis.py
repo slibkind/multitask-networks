@@ -13,7 +13,7 @@ from sklearn.cluster import DBSCAN
 
 from utils.model import run_model
 from utils.task import get_input
-from utils.utils import get_fixed_point_path, get_model
+from utils.utils import get_fixed_point_path, get_model, input_to_str
 
 from sklearn.decomposition import PCA
 
@@ -238,7 +238,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
 
     return hidden
 
-def get_fixed_points(model_name, input, q_thresh = None, unique = False, eps = 0.3):
+def get_fixed_points(model_name, input, epoch = None, q_thresh = None, unique = False, eps = 0.3):
     """
     Load fixed points from a file and optionally filter them based on their speeds.
 
@@ -249,6 +249,7 @@ def get_fixed_points(model_name, input, q_thresh = None, unique = False, eps = 0
         model_name (str): The name of the model for which to load fixed points.
         model (nn.Module): The actual model instance used for computing speeds if `q_thresh` is provided.
         input (torch.Tensor): The input sequence. Used for computing speeds if `q_thresh` is provided.
+        epoch (int, optional): The specific epoch of the model for which to load fixed points. If None, the latest model is used. Defaults to None.
         q_thresh (float, optional): A speed threshold. If set, only fixed points with speeds below this threshold 
             are returned. Defaults to None, in which case all fixed points are returned.
         unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
@@ -262,13 +263,13 @@ def get_fixed_points(model_name, input, q_thresh = None, unique = False, eps = 0
         FileNotFoundError: If no fixed point file is found for the given model and input.
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    fixed_point_path = get_fixed_point_path(model_name, input)
+    fixed_point_path = get_fixed_point_path(model_name, epoch=epoch)
 
     # Check if file exists
     if not os.path.exists(fixed_point_path):
-        raise FileNotFoundError(f"No fixed point file found for input {input} and model {model_name}.")
+        raise FileNotFoundError(f"No fixed point file found for model {model_name} and epoch {epoch}.")
 
-    fixed_points = torch.load(fixed_point_path, map_location=device).detach()
+    fixed_points = torch.load(fixed_point_path, map_location=device)[input_to_str(input)].detach()
 
     return filter_fixed_points(model_name, input, fixed_points, q_thresh=q_thresh, unique=unique, eps=eps)
 

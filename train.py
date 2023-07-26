@@ -71,6 +71,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     save_path = get_model_path(model_name)
     save_path_latest = get_model_path(model_name, latest = True)
     save_interval = 500  # Save the model every 500 epochs
+    validation_frequency = 100
     
     batch_size = hparams['batch_size']
     learning_rate = hparams['learning_rate']
@@ -126,7 +127,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         for i in range(batch_size):
             
             # Define the smoothing window
-            min_window = int(0.02 * period_duration) # 1
+            min_window = max(1, int(0.02 * period_duration)) # 1
             max_window = int(0.4 * period_duration) # 20
             smoothing_window = random.randint(min_window, max_window)
 
@@ -199,8 +200,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         torch.save(model_data, save_path_latest)
 
 
-        # Compute and print validation and average losses every 100 epochs
-        if epoch % 100 == 0:
+        # Compute and print validation and average losses every "validation_frequency" epochs
+        if (epoch + start_epoch) % validation_frequency == 0:
             
             val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
             avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_period + max_period)), grace_frac)
@@ -242,6 +243,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 100000
+max_epochs = 1000
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
