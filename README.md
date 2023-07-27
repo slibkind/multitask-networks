@@ -40,14 +40,17 @@ There are also notebooks:
 - `models/`: Directory to store the trained RNN models.
   - `<model_name>/`: Directory for each model, containing the files specific to that model.
     - `hyperparameters.json`: JSON file containing hyperparameters for the model.
-    - `model.pt`: Saved model file for the model.
-    - `analysis/`: Directory to store analysis data for the model.
+    - `performance.json`: JSON file saving the performance metrics over training.
+    - `models_checkpoint/`: Directory to store model checkpoints. Each checkpoint is a file named `model_epoch_<epoch>.pt`, representing the model's state at the specified epoch. There are two additional files: `model.pt`, which represents the model state that has achieved the best validation performance so far, and `model_latest.pt`, which represents the most recent model state.
+    - `analysis/`: Directory to store analysis data for the model. 
+      - `fixed_points/`: Subdirectory that stores fixed point data for each epoch. Each file is named `fixed_points_epoch_<epoch>.pt`, representing the fixed point data at the specified epoch. Each file contains a dictionary with two keys: `"stable_points"` and `"unstable_points"`. The value for each key is a tensor containing the corresponding set of fixed points.
 - `utils/`: Directory that contains various utility files.
   - `model.py`: Defines the `RNN` class, which represents the RNN model.
   - `task.py`: Contains utility functions related to tasks.
   - `analysis.py`: Contains utility functions for analysis.
   - `utils.py`: Contains other utility functions.
 - `tasks/`: Directory that contains a separate Python file for each task (for example, `delay_go.py`, `delay_anti.py`, etc.). Each file defines a class for the task that inherits from the base `Task` class. The `Task` class is also defined in this directory.
+
 
 ## Customizing the Training
 
