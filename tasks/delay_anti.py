@@ -7,7 +7,7 @@ from utils.task import smooth_sequence
 
 
 class DelayAnti(Task):
-    def __init__(self, grace_frac=0.):
+    def __init__(self):
 
         super().__init__(
             name = "DelayAnti",
