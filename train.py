@@ -6,10 +6,11 @@ import torch.optim.lr_scheduler as lr_scheduler
 import random
 import math
 import numpy as np
+import json
 import os
 from tqdm import tqdm 
 
-from utils.utils import get_hparams, get_model_path, load_checkpoint
+from utils.utils import get_hparams, get_model_path, load_checkpoint, get_metrics_path
 from utils.model import MultitaskRNN
 from utils.task import add_task_identity
 from tasks import DelayGo, DelayAnti
@@ -71,6 +72,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     save_path = get_model_path(model_name)
     save_path_latest = get_model_path(model_name, latest = True)
     save_interval = 500  # Save the model every 500 epochs
+    validation_frequency = 100
     
     batch_size = hparams['batch_size']
     learning_rate = hparams['learning_rate']
@@ -95,11 +97,21 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
 
     # Load the model from checkpoint if exists
-    if os.path.isfile(save_path):
-        rnn, optimizer, start_epoch = load_checkpoint(model_name, rnn, optimizer)
+    if os.path.isfile(save_path_latest):
+        rnn, optimizer, start_epoch = load_checkpoint(model_name, rnn, optimizer, latest = True)
         print(f"Loaded checkpoint at epoch {start_epoch}")
     else:
         start_epoch = 0
+    
+    # Initialize or load performance metrics dictionary
+    metrics_path = get_metrics_path(model_name)
+    if os.path.exists(metrics_path):
+        with open(metrics_path, "r") as f:
+            performance_metrics = json.load(f)
+    else:
+        performance_metrics = {"epochs": [], "val_loss": [], "avg_loss": []}
+
+
 
     # Initialize best validation loss as infinity
     best_val_loss = float('inf')
@@ -126,7 +138,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         for i in range(batch_size):
             
             # Define the smoothing window
-            min_window = int(0.02 * period_duration) # 1
+            min_window = max(1, int(0.02 * period_duration)) # 1
             max_window = int(0.4 * period_duration) # 20
             smoothing_window = random.randint(min_window, max_window)
 
@@ -199,15 +211,24 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         torch.save(model_data, save_path_latest)
 
 
-        # Compute and print validation and average losses every 100 epochs
-        if epoch % 100 == 0:
+        # Compute and print validation and average losses every "validation_frequency" epochs
+        if (epoch + start_epoch) % validation_frequency == 0:
             
             val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
             avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_period + max_period)), grace_frac)
             
             # Update progress bar
             progress_bar.set_postfix({'Validation Loss': val_loss.item(), 'Average Loss': avg_loss.item()})
+            
+            # Add current performance to metrics
+            performance_metrics["epochs"].append(epoch + start_epoch)
+            performance_metrics["val_loss"].append(val_loss.item())
+            performance_metrics["avg_loss"].append(avg_loss.item())
 
+            # Save performance metrics as a JSON file
+            with open(metrics_path, "w") as f:
+                json.dump(performance_metrics, f)
+                    
             # If validation loss improved, save the model state
             if val_loss < best_val_loss:
                 torch.save(model_data, save_path)
@@ -217,7 +238,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
                 print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch + start_epoch}. Stopping training.")
                 return
             
-        if epoch % save_interval == 0:
+        if (epoch + start_epoch) % save_interval == 0:
             # Save the model every "save_interval" epochs
             interval_save_path = get_model_path(model_name, epoch=epoch+start_epoch)
             torch.save(model_data, interval_save_path)
@@ -242,6 +263,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 100000
+max_epochs = 1000
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
