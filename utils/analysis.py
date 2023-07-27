@@ -169,8 +169,6 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
     no_improve_iter = 0
     best_grad_norm = float('inf')
 
-    start_time = time.time()
-
     while True:
         speed_per_init_cond = None
 
@@ -205,10 +203,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
         
         # Every check_interval iterations, check if any hidden states have reached a local minimum (i.e., their gradient norm is below the threshold)
         if verbose and iteration % check_interval == 0:
-            elapsed_time = time.time() - start_time
             print(f"Iteration {iteration}: maximum gradient norm across all initial conditions is {max_grad_norm}")
-            print(f"Time taken for the last {check_interval} iterations: {elapsed_time} seconds.")
-            start_time = time.time()
 
         # Update the best grad norm
         if max_grad_norm < best_grad_norm:
