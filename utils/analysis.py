@@ -169,6 +169,8 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
     no_improve_iter = 0
     best_grad_norm = float('inf')
 
+    start_time = time.time()
+
     while True:
         speed_per_init_cond = None
 
@@ -203,7 +205,10 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
         
         # Every check_interval iterations, check if any hidden states have reached a local minimum (i.e., their gradient norm is below the threshold)
         if verbose and iteration % check_interval == 0:
+            elapsed_time = time.time() - start_time
             print(f"Iteration {iteration}: maximum gradient norm across all initial conditions is {max_grad_norm}")
+            print(f"Time taken for the last {check_interval} iterations: {elapsed_time} seconds.")
+            start_time = time.time()
 
         # Update the best grad norm
         if max_grad_norm < best_grad_norm:
@@ -233,7 +238,8 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
 
     return hidden
 
-def get_fixed_points(model_name, input, epoch = None, q_thresh = None, unique = False, eps = 0.3):
+
+def get_fixed_points(model_name, input, epoch, q_thresh = None, unique = False, eps = 0.3):
     """
     Load fixed points from a file and optionally filter them based on their speeds.
 
@@ -244,7 +250,7 @@ def get_fixed_points(model_name, input, epoch = None, q_thresh = None, unique = 
         model_name (str): The name of the model for which to load fixed points.
         model (nn.Module): The actual model instance used for computing speeds if `q_thresh` is provided.
         input (torch.Tensor): The input sequence. Used for computing speeds if `q_thresh` is provided.
-        epoch (int, optional): The specific epoch of the model for which to load fixed points. If None, the latest model is used. Defaults to None.
+        epoch (int): The specific epoch of the model for which to load fixed points.
         q_thresh (float, optional): A speed threshold. If set, only fixed points with speeds below this threshold 
             are returned. Defaults to None, in which case all fixed points are returned.
         unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
@@ -258,35 +264,47 @@ def get_fixed_points(model_name, input, epoch = None, q_thresh = None, unique = 
         FileNotFoundError: If no fixed point file is found for the given model and input.
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    fixed_point_path = get_fixed_point_path(model_name, epoch=epoch)
+    fixed_point_path = get_fixed_point_path(model_name, epoch)
 
     # Check if file exists
     if not os.path.exists(fixed_point_path):
         raise FileNotFoundError(f"No fixed point file found for model {model_name} and epoch {epoch}.")
 
-    fixed_points = torch.load(fixed_point_path, map_location=device)[input_to_str(input)].detach()
+    fixed_points_dict = torch.load(fixed_point_path, map_location=device)[input_to_str(input)]
+    stable_points = fixed_points_dict["stable_points"].detach()
+    unstable_points = fixed_points_dict["unstable_points"].detach()
 
-    return filter_fixed_points(model_name, input, fixed_points, q_thresh=q_thresh, unique=unique, eps=eps)
+    stable_points = filter_fixed_points(model_name, input, stable_points, q_thresh=q_thresh, unique=unique, eps=eps)
+    unstable_points = filter_fixed_points(model_name, input, unstable_points, q_thresh=q_thresh, unique=unique, eps=eps)
+
+    return stable_points, unstable_points
 
 
 def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=False, eps=0.3):
     """
-    Filter out the fixed points of an RNN model based on their speed and uniqueness.
-    
-    The speed of a fixed point is computed using the get_speed function, and 
-    fixed points with speed less than q_thresh are retained. If unique=True, 
-    duplicate fixed points are removed using the get_unique_fixed_points function.
+    Filter the fixed points of an RNN model based on their speed and uniqueness.
+
+    This function filters the given fixed points of a model based on their speed 
+    and, if requested, removes duplicates. The speed of a fixed point is computed 
+    using the get_speed function, and fixed points with a speed less than a specified
+    threshold `q_thresh` are retained. If `unique` is set to True, duplicate fixed points 
+    are removed using the get_unique_fixed_points function.
 
     Args:
-        model_name (str): Name of the RNN model.
+        model_name (str): The name of the RNN model.
         input (torch.Tensor): The input provided to the RNN.
-        fixed_points (torch.Tensor): Tensor containing the fixed points to be filtered.
-        q_thresh (float, optional): Threshold for speed. Fixed points with speed less than q_thresh are retained. If None, no speed filtering is performed. Default is None.
-        unique (bool, optional): If True, duplicate fixed points are removed using DBSCAN clustering algorithm. Default is False.
-        eps (float, optional): The maximum distance between two samples for them to be considered as in the same neighborhood. This parameter is used only when unique=True. Default is 0.3.
+        fixed_points (torch.Tensor): The tensor containing the fixed points to be filtered.
+        q_thresh (float, optional): The speed threshold. Only fixed points with speeds below 
+            this threshold are returned. If None, no speed filtering is performed. Default is None.
+        unique (bool, optional): If True, duplicate fixed points are removed. Default is False.
+        eps (float, optional): The maximum distance between two samples for them to be 
+            considered as in the same neighborhood. This parameter is used only when unique=True. 
+            Default is 0.3.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Two tensors containing the filtered stable and unstable fixed points, respectively.
+        torch.Tensor: A tensor containing the filtered fixed points. If `q_thresh` is set, this 
+            tensor only includes fixed points with speeds below the threshold. If `unique` is set to True,
+            duplicate fixed points are removed from the tensor.
 
     Raises:
         FileNotFoundError: If the model cannot be loaded from the specified model_name.
@@ -295,19 +313,12 @@ def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=F
     if q_thresh is not None: 
         speeds = get_speed(rnn, input, fixed_points)
         fixed_points = fixed_points[speeds < q_thresh] 
-
-    # Calculate stability of each fixed point
-    stability = torch.tensor([is_stable(rnn, point, input) for point in fixed_points], dtype=torch.bool, device=fixed_points.device)
-
-    # Split fixed points into stable and unstable
-    stable_points = fixed_points[stability]
-    unstable_points = fixed_points[~stability]
-
+        
     if unique:
-        stable_points = get_unique_fixed_points(stable_points, eps)
-        unstable_points = get_unique_fixed_points(unstable_points, eps)
+         return get_unique_fixed_points(fixed_points, eps)
     
-    return stable_points, unstable_points
+    return fixed_points
+
 
 
     
@@ -478,7 +489,7 @@ def plot_hiddens_and_data(rnn, tasks, data_list, label_list=None, color_list=Non
 
 
 
-def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp, 
+def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_interp, 
                            q_thresh=None,
                            eps=0.3,
                            input_labels=None, 
@@ -491,6 +502,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
     
     Args:
         model_name (str): Name of the model used to generate the fixed points.
+        epoch (int): The specific epoch of the model for which to load fixed points.
         task_idx (list of int): List of task indices.
         period (list of str): List of periods.
         stimulus (list of int): List of stimuli.
@@ -537,7 +549,7 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
             interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
 
             # Load the fixed points for the interpolated input
-            stable_fixed_points, unstable_fixed_points = get_fixed_points(model_name, interpolated_input, q_thresh=q_thresh, unique=True, eps=eps)
+            stable_fixed_points, unstable_fixed_points = get_fixed_points(model_name, interpolated_input, epoch, q_thresh=q_thresh, unique=True, eps=eps)
             
             # Add to lists
             all_stable_fixed_points.append(stable_fixed_points)
@@ -589,4 +601,5 @@ def visualize_fixed_points(model_name, task_idx, period, stimulus, n_interp,
     if title:
         ax.set_title(title)
 
-    return ax   # Return the axes object for further manipulation
+    return ax   # Return the axes object for further manipulationNone
+    
