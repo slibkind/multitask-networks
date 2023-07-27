@@ -9,7 +9,7 @@ dependencies:
   - backcall=0.2.0=pyh9f0ad1d_0
   - backports=1.0=pyhd8ed1ab_3
   - backports.functools_lru_cache=1.6.4=pyhd8ed1ab_0
-  - blas=1.0=mkl
+  - blas=1.0=openblas
   - brotli=1.0.9=hca72f7f_7
   - brotli-bin=1.0.9=hca72f7f_7
   - bzip2=1.0.8=h0d85af4_4
@@ -54,15 +54,13 @@ dependencies:
   - matplotlib-base=3.7.1=py311h11e8b89_1
   - matplotlib-inline=0.1.6=pyhd8ed1ab_0
   - mkl=2023.1.0=h59209a4_43558
-  - mkl_fft=1.3.6=py311hdb55bb0_1
-  - mkl_random=1.2.2=py311hdb55bb0_1
   - munkres=1.1.4=py_0
   - ncurses=6.4=hcec6c5f_0
   - nest-asyncio=1.5.6=pyhd8ed1ab_0
   - ninja=1.10.2=hecd8cb5_5
   - ninja-base=1.10.2=haf03e11_5
-  - numpy-base=1.24.3=py311h53bf9ac_1
-  - openssl=1.1.1t=hca72f7f_0
+  - numpy-base=1.25.0=py311hb3ec012_0
+  - openssl=1.1.1u=hca72f7f_0
   - packaging=23.1=pyhd8ed1ab_0
   - parso=0.8.3=pyhd8ed1ab_0
   - pexpect=4.8.0=pyh1a96a4e_2
@@ -113,10 +111,8 @@ dependencies:
     - jupyter-core==5.3.0
     - kiwisolver==1.4.4
     - matplotlib==3.7.1
-    - mkl-fft==1.3.6
-    - mkl-random==1.2.2
     - mkl-service==2.4.0
-    - numpy==1.24.3
+    - numpy==1.25.0
     - pillow==9.4.0
     - psutil==5.9.0
     - pyopenssl==23.0.0
@@ -129,5 +125,6 @@ dependencies:
     - scipy==1.10.1
     - torch==1.13.1
     - tornado==6.2
+    - tqdm==4.65.0
     - urllib3==1.26.15
 prefix: /Users/slibkind/opt/anaconda3/envs/multitask-rnn
