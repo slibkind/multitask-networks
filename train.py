@@ -25,10 +25,6 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-# Set your seed here
-seed = 2
-set_seed(2) 
-
 def check_task_compatibility(tasks):
     """Check that all tasks have the same number of inputs and outputs."""
     num_inputs = tasks[0].num_inputs
@@ -78,12 +74,15 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     learning_rate = hparams['learning_rate']
     sigma_x = hparams['sigma_x']
     alpha = hparams['alpha']
+    seed = hparams['seed']
+
+    set_seed(seed)
 
     min_period = 25
     max_period = 200
 
     validation_window = 1000
-    val_threshold = 1e-3
+    val_threshold = 1e-4
 
     grace_frac = 0.1
 
@@ -263,6 +262,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 1000
+max_epochs = 100000
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
