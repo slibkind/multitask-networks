@@ -17,12 +17,12 @@ from utils.utils import get_fixed_point_path, get_model, input_to_str
 
 from sklearn.decomposition import PCA
 
-def get_hidden_trajectories(rnn, tasks):
+def get_hidden_trajectories(model, tasks):
     """
     Runs the given RNN model on all tasks and returns the concatenated hidden trajectories.
 
     Args:
-        rnn (nn.Module): The RNN model.
+        model (nn.Module): The RNN model.
         tasks (list): List of tasks.
 
     Returns:
@@ -30,7 +30,7 @@ def get_hidden_trajectories(rnn, tasks):
     """
     all_hidden_trajectories = []
     for task_index in range(len(tasks)):
-        _, _, _, hidden_trajectory = run_model(rnn, tasks, task_index)
+        _, _, _, hidden_trajectory = run_model(model, tasks, task_index)
         all_hidden_trajectories.append(hidden_trajectory)
 
     # Concatenate the hidden trajectories from all tasks
@@ -38,18 +38,18 @@ def get_hidden_trajectories(rnn, tasks):
 
     return concatenated_hidden_trajectories
 
-def get_all_hiddens(rnn, tasks):
+def get_all_hiddens(model, tasks):
     """
     Runs the given RNN model on all tasks and returns the concatenated hidden states.
 
     Args:
-        rnn (nn.Module): The RNN model.
+        model (nn.Module): The RNN model.
         tasks (list): List of tasks.
 
     Returns:
         torch.Tensor: The concatenated hidden states of shape (n_sequences * time_steps, n_hidden).
     """
-    hidden_trajectories = get_hidden_trajectories(rnn, tasks)
+    hidden_trajectories = get_hidden_trajectories(model, tasks)
 
     # Reshape the concatenated hidden states
     reshaped_hiddens = hidden_trajectories.view(-1, hidden_trajectories.size(-1))
@@ -169,8 +169,6 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
     no_improve_iter = 0
     best_grad_norm = float('inf')
 
-    start_time = time.time()
-
     while True:
         speed_per_init_cond = None
 
@@ -205,10 +203,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
         
         # Every check_interval iterations, check if any hidden states have reached a local minimum (i.e., their gradient norm is below the threshold)
         if verbose and iteration % check_interval == 0:
-            elapsed_time = time.time() - start_time
             print(f"Iteration {iteration}: maximum gradient norm across all initial conditions is {max_grad_norm}")
-            print(f"Time taken for the last {check_interval} iterations: {elapsed_time} seconds.")
-            start_time = time.time()
 
         # Update the best grad norm
         if max_grad_norm < best_grad_norm:
@@ -239,7 +234,7 @@ def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, 
     return hidden
 
 
-def get_fixed_points(model_name, input, epoch, q_thresh = None, unique = False, eps = 0.3):
+def get_fixed_points(model_name, model, input, epoch, q_thresh = None, unique = False, eps = 0.3):
     """
     Load fixed points from a file and optionally filter them based on their speeds.
 
@@ -274,13 +269,13 @@ def get_fixed_points(model_name, input, epoch, q_thresh = None, unique = False, 
     stable_points = fixed_points_dict["stable_points"].detach()
     unstable_points = fixed_points_dict["unstable_points"].detach()
 
-    stable_points = filter_fixed_points(model_name, input, stable_points, q_thresh=q_thresh, unique=unique, eps=eps)
-    unstable_points = filter_fixed_points(model_name, input, unstable_points, q_thresh=q_thresh, unique=unique, eps=eps)
+    stable_points = filter_fixed_points(model, input, stable_points, q_thresh=q_thresh, unique=unique, eps=eps)
+    unstable_points = filter_fixed_points(model, input, unstable_points, q_thresh=q_thresh, unique=unique, eps=eps)
 
     return stable_points, unstable_points
 
 
-def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=False, eps=0.3):
+def filter_fixed_points(model, input, fixed_points, q_thresh=None, unique=False, eps=0.3):
     """
     Filter the fixed points of an RNN model based on their speed and uniqueness.
 
@@ -291,7 +286,7 @@ def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=F
     are removed using the get_unique_fixed_points function.
 
     Args:
-        model_name (str): The name of the RNN model.
+        model (nn.Module): The RNN model.
         input (torch.Tensor): The input provided to the RNN.
         fixed_points (torch.Tensor): The tensor containing the fixed points to be filtered.
         q_thresh (float, optional): The speed threshold. Only fixed points with speeds below 
@@ -309,9 +304,8 @@ def filter_fixed_points(model_name, input, fixed_points, q_thresh=None, unique=F
     Raises:
         FileNotFoundError: If the model cannot be loaded from the specified model_name.
     """
-    rnn, _ = get_model(model_name)
     if q_thresh is not None: 
-        speeds = get_speed(rnn, input, fixed_points)
+        speeds = get_speed(model, input, fixed_points)
         fixed_points = fixed_points[speeds < q_thresh] 
         
     if unique:
@@ -367,10 +361,10 @@ def get_unique_fixed_points(fixed_points, eps = 0.3):
     return torch.from_numpy(representatives).float()
 
 
-def compute_jacobian(rnn, hidden_state, input):
+def compute_jacobian(model, hidden_state, input):
     """Compute the Jacobian of the RNN's hidden state with respect to the input.
     Args:
-        rnn (MultitaskRNN): The RNN model.
+        model (MultitaskRNN): The RNN model.
         hidden_state (torch.Tensor): The hidden state of the RNN.
         input (torch.Tensor): The input to the RNN.
 
@@ -383,8 +377,8 @@ def compute_jacobian(rnn, hidden_state, input):
         x.requires_grad_(True)
 
         # Update the hidden state with the RNN's state transition function
-        dx = rnn.activation(
-            torch.einsum('ij,j->i', rnn.W_in, input) + torch.einsum('ij,j->i', rnn.W_rec, x) + rnn.b)
+        dx = model.activation(
+            torch.einsum('ij,j->i', model.W_in, input) + torch.einsum('ij,j->i', model.W_rec, x) + model.b)
         
         return dx
 
@@ -392,14 +386,14 @@ def compute_jacobian(rnn, hidden_state, input):
     return jacobian(get_dx, hidden_state)
 
 
-def is_stable(rnn, fixed_point, input):
+def is_stable(model, fixed_point, input):
     """
     Determines the stability of a fixed point of a recurrent neural network (RNN) given an input. 
 
     A fixed point is considered stable if the real parts of all the eigenvalues of the Jacobian matrix at the fixed point are less than 1.
 
     Args:
-        rnn (torch.nn.Module): The RNN model.
+        model (torch.nn.Module): The RNN model.
         fixed_point (torch.Tensor): The fixed point to evaluate the stability of. This tensor represents the state of the RNN.
         input (torch.Tensor): The input provided to the RNN.
 
@@ -408,7 +402,7 @@ def is_stable(rnn, fixed_point, input):
     """
 
     # Compute the Jacobian matrix at the given fixed point
-    jacobian = compute_jacobian(rnn, fixed_point, input)
+    jacobian = compute_jacobian(model, fixed_point, input)
 
     # Compute the eigenvalues of the Jacobian
     eigenvalues = torch.linalg.eig(jacobian).eigenvalues
@@ -422,12 +416,12 @@ def is_stable(rnn, fixed_point, input):
 
 
 
-def plot_hiddens_and_data(rnn, tasks, data_list, label_list=None, color_list=None, filled_list=None, title=None):
+def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=None, filled_list=None, title=None):
     """
     Apply PCA on the hidden trajectories and plot the first two principal components of the data and hidden trajectories.
 
     Args:
-        rnn (nn.Module): The RNN model.
+        model (nn.Module): The RNN model.
         tasks (list): List of tasks.
         data_list (list of torch.Tensor): List of data tensors to be plotted.
         label_list (list of str, optional): List of labels corresponding to the data tensors. Defaults to None.
@@ -446,7 +440,7 @@ def plot_hiddens_and_data(rnn, tasks, data_list, label_list=None, color_list=Non
         filled_list = [True for _ in range(len(data_list))]
 
     # Get the hidden trajectories for all tasks
-    all_hidden_trajectories = get_hidden_trajectories(rnn, tasks)
+    all_hidden_trajectories = get_hidden_trajectories(model, tasks)
     
     # Reshape the all_hidden_trajectories tensor for PCA
     reshaped_all_hidden_trajectories = all_hidden_trajectories.view(-1, all_hidden_trajectories.size(-1))
