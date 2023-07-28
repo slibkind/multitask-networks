@@ -8,13 +8,12 @@ The tasks to train the networks on are named "delay-go", "delay-anti", "delay-ma
 
 Each task in this project has a defined structure which includes inputs, outputs, periods, and a grace period. The inputs and outputs are binary vectors, and the periods are stages of the task which last for a fixed number of time steps. During the grace period, the network is not penalized for incorrect outputs.
 
-- **Delay-Go**: This task consists of four periods: "fixation", "stimulus on", "delay", and "go". The network should respond to the stimulus that was active during the "stimulus on" period during the "go" period.
-- **Delay-Anti**: Similar to the Delay-Go task, but during the "go" period, the network should respond with the opposite stimulus that was active during the "stimulus on" period.
+- **DelayGo**: This task consists of four periods: "fixation", "stimulus on", "delay", and "go". The network should respond to the stimulus that was active during the "stimulus on" period during the "go" period.
+- **DelayAnti**: Similar to the Delay-Go task, but during the "go" period, the network should respond with the opposite stimulus that was active during the "stimulus on" period.
 - **DelayGoContinuous**: A variation of the Delay-Go task. Instead of the stimulus being a binary value, it is a float $\theta$ between $0$ and $2\pi$. The input and output tensors encode the sine and cosine of the stimulus rather than a one-hot encoding.
 - **DelayAntiContinuous**: Similar to the DelayGoContinuous task, but during the "go" period, the network should respond as though it received the opposite  stimulus ($-\theta$) that was active during the "stimulus on" period.
-- **Delay-Match-to-Sample**: Description of Delay-Match-to-Sample task...
-- **Delay-Anti-Match-to-Sample**: Description of Delay-Anti-Match-to-Sample task...
-
+- **DelayMatchToSample**: This task consists of six periods: "fixation", "stimulus A on", "delay 1", "stimulus B on", "delay 2", and "go". The network should respond with stimulus B during the "go" period if and only if stimulus A and stimulus B were the same during their respective periods.
+- **Delay-Anti-Match-to-Sample**: Similar to the DelayMatchToSample task, but during the "go" period, the network should respond with stimulus B if and only if stimulus A and stimulus B were the different during their respective periods.
 
 
 
