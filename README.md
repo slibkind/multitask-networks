@@ -6,12 +6,17 @@ The tasks to train the networks on are named "delay-go", "delay-anti", "delay-ma
 
 ## Tasks
 
-Each task in this project has a defined structure which includes inputs, outputs, periods, and a grace period. The inputs and outputs are binary vectors and the periods are stages of the task which last for a fixed number of time steps. During the grace period, the network is not penalized for incorrect outputs.
+Each task in this project has a defined structure which includes inputs, outputs, periods, and a grace period. The inputs and outputs are binary vectors, and the periods are stages of the task which last for a fixed number of time steps. During the grace period, the network is not penalized for incorrect outputs.
 
 - **Delay-Go**: This task consists of four periods: "fixation", "stimulus on", "delay", and "go". The network should respond to the stimulus that was active during the "stimulus on" period during the "go" period.
-- **Delay-Anti**: Description of Delay-Anti task...
+- **Delay-Anti**: Similar to the Delay-Go task, but during the "go" period, the network should respond with the opposite stimulus that was active during the "stimulus on" period.
+- **DelayGoContinuous**: A variation of the Delay-Go task. Instead of the stimulus being a binary value, it is a float $\theta$ between $0$ and $2\pi$. The input and output tensors encode the sine and cosine of the stimulus rather than a one-hot encoding.
+- **DelayAntiContinuous**: Similar to the DelayGoContinuous task, but during the "go" period, the network should respond as though it received the opposite  stimulus ($-\theta$) that was active during the "stimulus on" period.
 - **Delay-Match-to-Sample**: Description of Delay-Match-to-Sample task...
 - **Delay-Anti-Match-to-Sample**: Description of Delay-Anti-Match-to-Sample task...
+
+
+
 
 ## Getting Started
 
