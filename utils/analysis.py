@@ -514,7 +514,7 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
     """
 
     # Load model and tasks
-    _, tasks = get_model(model_name)
+    rnn, tasks = get_model(model_name, epoch)
 
     # Initialize color map
     cmap = plt.get_cmap(cmap)
@@ -543,7 +543,7 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
             interpolated_input = (n_interp - i) / n_interp * input1 + i / n_interp * input2
 
             # Load the fixed points for the interpolated input
-            stable_fixed_points, unstable_fixed_points = get_fixed_points(model_name, interpolated_input, epoch, q_thresh=q_thresh, unique=True, eps=eps)
+            stable_fixed_points, unstable_fixed_points = get_fixed_points(model_name, rnn, interpolated_input, epoch, q_thresh=q_thresh, unique=True, eps=eps)
             
             # Add to lists
             all_stable_fixed_points.append(stable_fixed_points)

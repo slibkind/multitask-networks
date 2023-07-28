@@ -37,7 +37,7 @@ def get_model_path(model_name, epoch=None, latest=False):
         return os.path.join(model_checkpoint_dir, "model_latest.pt")
 
     if epoch:  # Get the model of a specific epoch
-        return os.path.join(model_checkpoint_dir, f"model_epoch_{epoch}.pt")
+        return os.path.join(model_checkpoint_dir, f"model_epoch_{str(epoch)}.pt")
     
     return os.path.join(model_checkpoint_dir, "model.pt")
 
