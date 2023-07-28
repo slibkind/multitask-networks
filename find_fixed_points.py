@@ -42,7 +42,7 @@ def find_fixed_points(model_name, epoch, task_details, n_interp, learning_rate, 
       input2 = get_input(task_idx[1], period[1], stimulus[1], tasks)
       
       for i in range(n_interp + 1):
-          
+          print(f"Model {model_name}, epoch {epoch}.")
           print(f"Task Details: {task_idx}, {period}, {stimulus}. Interpolation step {i+1} of {n_interp+1}")
           
           # Linearly interpolate between the inputs
@@ -81,16 +81,7 @@ def find_fixed_points(model_name, epoch, task_details, n_interp, learning_rate, 
 
 # Model configuration
 model_name = "delaygo_delayanti_256"
-epoch = 500
 
-# If the epoch is None, save the latest model checkpoint
-if epoch is None:
-    epoch = get_model_epoch(model_name)
-    src = get_model_path(model_name)
-    dst = get_model_path(model_name, epoch)
-    shutil.copy2(src, dst)
-
-print(f"Finding the fixed points for model {model_name} and epoch {epoch}")
 
 # Define task details
 task_details = [
@@ -99,19 +90,18 @@ task_details = [
     ([1, 1], ["stim", "delay"], [1, 1]),   # run through the delayanti task with stimulus 1
     ([1, 1], ["delay", "go"], [1, 1]),
     ([0, 0], ["stim", "delay"], [2, 2]),   # run through the delaygo task with stimulus 2
-    ([0, 0], ["delay", "go"], [2, 2]),
     ([1, 1], ["stim", "delay"], [2, 2]),   # run through the delayanti task with stimulus 2
-    ([1, 1], ["delay", "go"], [2, 2]),
     ([0, 1], ["delay", "delay"], [1, 1])   # compare delay periods in delaygo vs. delayanti tasks
 ]
 
 
 # Interpolation steps
-n_interp = 4
+n_interp = 20
 
 # Parameters for finding fixed points
 learning_rate = 0.1
 grad_threshold = 1e-3
 sample_proportion = 0.1   # proportion of all hidden states to be sampled
 
-find_fixed_points(model_name, epoch, task_details, n_interp, learning_rate, grad_threshold, sample_proportion)
+for epoch in range(2000, 32000, 2000):
+  find_fixed_points(model_name, epoch, task_details, n_interp, learning_rate, grad_threshold, sample_proportion)
