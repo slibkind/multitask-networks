@@ -13,7 +13,7 @@ from tqdm import tqdm
 from utils.utils import get_hparams, get_model_path, load_checkpoint, get_metrics_path
 from utils.model import MultitaskRNN
 from utils.task import add_task_identity
-from tasks import DelayGo, DelayAnti
+import tasks
 
 # Add your set_seed function here
 def set_seed(seed):
@@ -94,6 +94,11 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
     # Initialize the optimizer and scheduler (if applicable)
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
+    
+    if hparams['use_scheduler']:
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=hparams['scheduler_patience'])
+    else:
+        scheduler = None
 
     # Load the model from checkpoint if exists
     if os.path.isfile(save_path_latest):
@@ -200,6 +205,11 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         # Optimization
         optimizer.step()
 
+        # If we're using a scheduler, step it
+        if scheduler:
+            scheduler.step(loss)
+
+
         # Save the current state of the model as the 'latest' model
         model_data = {
             'model_state_dict': rnn.state_dict(),
@@ -246,8 +256,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         
 
 # Initialize tasks
-delay_go_task = DelayGo()
-delay_anti_task = DelayAnti()
+delay_go_task = tasks.DelayGo()
+delay_anti_task = tasks.DelayAnti()
 
 tasks = [delay_go_task, delay_anti_task]
 
@@ -262,6 +272,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 100000
+max_epochs = 20001
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
