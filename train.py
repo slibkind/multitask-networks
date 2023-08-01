@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
 
 import random
 import math
@@ -92,13 +91,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     if not check_task_compatibility(tasks):
         raise ValueError("All tasks must have the same number of inputs and outputs.")
 
-    # Initialize the optimizer and scheduler (if applicable)
+    # Initialize the optimizer 
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
-    
-    if hparams['use_scheduler']:
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=hparams['scheduler_patience'])
-    else:
-        scheduler = None
 
     # Load the model from checkpoint if exists
     if os.path.isfile(save_path_latest):
@@ -198,10 +192,6 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
         # Optimization
         optimizer.step()
-
-        # If we're using a scheduler, step it
-        if scheduler:
-            scheduler.step(loss)
 
         # Save the current state of the model as the 'latest' model
         model_data = {
