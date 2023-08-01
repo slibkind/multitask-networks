@@ -78,8 +78,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
     set_seed(seed)
 
-    min_period = 25
-    max_period = 200
+    min_period = 10
+    max_period = 800
 
     validation_window = 1000
     val_threshold = 1e-4
@@ -139,29 +139,23 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         # Get a random period duration
         period_duration = random.randint(min_period, max_period + 1)
 
-        for i in range(batch_size):
-            
-            # Define the smoothing window
-            min_window = max(1, int(0.02 * period_duration)) # 1
-            max_window = int(0.4 * period_duration) # 20
-            smoothing_window = random.randint(min_window, max_window)
+        # Define the smoothing window
+        min_window = 1 
+        max_window = 20 
+        smoothing_window = random.randint(min_window, max_window)
 
-            # Generate a batch of sequences for the task with the selected smoothing window
-            task_inputs, task_outputs = task.generate_batch(1, period_duration = period_duration, smoothing_window=smoothing_window, noise = noise)
-            
-            # Extend the inputs with the task identity
-            task_inputs = add_task_identity(task_inputs, task_index, len(tasks))
-            
-            inputs.append(task_inputs)
-            outputs.append(task_outputs)
+        # Select a single task for the whole batch
+        task_index = torch.randint(len(tasks), (1,)).item()
+        task = tasks[task_index]
 
-            # Create a mask for the grace period
-            mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
-            masks.append(mask)
+        # Generate the full batch just for this task
+        inputs, outputs = task.generate_batch(batch_size, period_duration, smoothing_window = smoothing_window, noise = noise)
+        inputs = add_task_identity(inputs, task_index, len(tasks))
 
-        inputs = torch.cat(inputs)
-        outputs = torch.cat(outputs)
-        masks = torch.cat(masks)
+        # Create a mask for the grace period
+        mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
+        masks = mask.repeat(batch_size, 1, 1)
+
 
         # Reset the hidden state
         hidden = rnn.init_hidden(batch_size)
@@ -208,7 +202,6 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         # If we're using a scheduler, step it
         if scheduler:
             scheduler.step(loss)
-
 
         # Save the current state of the model as the 'latest' model
         model_data = {
