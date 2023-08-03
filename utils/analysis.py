@@ -19,24 +19,21 @@ from sklearn.decomposition import PCA
 
 def get_hidden_trajectories(model, tasks):
     """
-    Runs the given RNN model on all tasks and returns the concatenated hidden trajectories.
+    Runs the given RNN model on all tasks and returns the list of hidden trajectories.
 
     Args:
         model (nn.Module): The RNN model.
         tasks (list): List of tasks.
 
     Returns:
-        torch.Tensor: The concatenated hidden trajectories of shape (n_sequences, timesteps, n_hidden).
+        list[torch.Tensor]: The list of hidden trajectories.
     """
     all_hidden_trajectories = []
     for task_index in range(len(tasks)):
         _, _, _, hidden_trajectory = run_model(model, tasks, task_index)
         all_hidden_trajectories.append(hidden_trajectory)
-
-    # Concatenate the hidden trajectories from all tasks
-    concatenated_hidden_trajectories = torch.cat(all_hidden_trajectories, dim=0)
-
-    return concatenated_hidden_trajectories
+        
+    return all_hidden_trajectories
 
 def get_all_hiddens(model, tasks):
     """
@@ -51,8 +48,8 @@ def get_all_hiddens(model, tasks):
     """
     hidden_trajectories = get_hidden_trajectories(model, tasks)
 
-    # Reshape the concatenated hidden states
-    reshaped_hiddens = hidden_trajectories.view(-1, hidden_trajectories.size(-1))
+    # Concatenate the hidden states from all trajectories into a single tensor
+    reshaped_hiddens = torch.cat([ht.view(-1, ht.size(-1)) for ht in hidden_trajectories], dim=0)
 
     return reshaped_hiddens
 
