@@ -13,14 +13,13 @@ class DelayAntiMatchToSample(Task):
             num_outputs=3
         )
 
-    def get_input(self, period, stimulus_A, stimulus_B):
+    def get_input(self, period, stimulus):
         """
         Returns the input corresponding to a given period and stimuli.
 
         Args:
             period (str): The period of the task. Should be one of ['fix', 'stim_A', 'delay_1', 'stim_B', 'delay_2', 'go'].
-            stimulus_A (int): The stimulus number for the 'stim_A' period. Should be either 1 or 2.
-            stimulus_B (int): The stimulus number for the 'stim_B' period. Should be either 1 or 2.
+            stimulus (tuple): The pair of stimulus values (stimulus_A, stimulus_B). Each should be either 1 or 2.
 
         Returns:
             torch.Tensor: The input tensor corresponding to the specified period and stimuli.
@@ -29,6 +28,8 @@ class DelayAntiMatchToSample(Task):
             ValueError: If the stimulus values are not 1 or 2.
             ValueError: If the period is not valid.
         """
+        stimulus_A, stimulus_B = stimulus  # Unpack the stimulus tuple
+
         if stimulus_A not in [1, 2] or stimulus_B not in [1, 2]:
             raise ValueError("Invalid stimulus value(s). Should be either 1 or 2.")
 
