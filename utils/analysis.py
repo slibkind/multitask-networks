@@ -113,7 +113,7 @@ def get_speed(model, input, hidden, duplicate_input=True):
     return speed
 
     
-def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, patience=1000, max_iterations=None, verbose=True, method='first', check_interval=10000):
+def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, patience=1000, max_iterations=None, verbose=False, method='first', check_interval=10000):
     """
     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
@@ -487,7 +487,8 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
                            title=None, 
                            cmap='plasma', 
                            s = 100,
-                           ax=None):
+                           ax=None, 
+                           plot_3d=False):
     """
     Visualize fixed points' first principal component for each interpolated input.
     
@@ -525,7 +526,12 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
 
     # Create a new figure if no axes object was provided
     if ax is None:
-        _, ax = plt.subplots(figsize=(10, 8))
+        fig = plt.figure(figsize=(10, 8))  # we need a fig reference for 3D plotting
+        if plot_3d:
+            ax = fig.add_subplot(111, projection='3d')  # add a 3D subplot
+        else:
+            ax = fig.add_subplot(111)  # add a 2D subplot
+
 
     # Loop over the task pairs
     for t in range(len(task_idx) - 1):
@@ -556,7 +562,8 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
     # Convert to numpy for compatibility with PCA
     combined_fixed_points_np = combined_fixed_points.detach().numpy()
 
-    pca = PCA(n_components=1)
+    n_components = 2 if plot_3d else 1
+    pca = PCA(n_components=n_components)
     pca.fit(combined_fixed_points_np)
 
     # Plot the first principal component for each interpolated input
@@ -566,16 +573,24 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
                 fixed_points_i = all_fixed_points[t*n_interp+i]
 
                 if fixed_points_i.numel() == 0: 
-                        continue
+                    continue
                 
-                projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]
+                projections = pca.transform(fixed_points_i.detach().numpy())
                 color = cmap(color_norm(t*n_interp+i))
 
                 for proj in projections:
-                    if is_stable:
-                        ax.scatter([(t + i / n_interp)], [proj], color=color, edgecolors=color, s=s)
+                    if plot_3d:
+                        # For 3D plot, we scatter x, y and z
+                        if is_stable:
+                            ax.scatter([(t + i / n_interp)], proj[0], proj[1], color=color, edgecolors=color, s=s)
+                        else:
+                            ax.scatter([(t + i / n_interp)], proj[0], proj[1], color='none', edgecolor=color, s=s)
                     else:
-                        ax.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=color, s=s)
+                        # For 2D plot, we scatter x and y only
+                        if is_stable:
+                            ax.scatter([(t + i / n_interp)], [proj[0]], color=color, edgecolors=color, s=s)
+                        else:
+                            ax.scatter([(t + i / n_interp)], [proj[0]], color='none', edgecolor=color, s=s)
 
     # Draw a vertical line at each integer on the x-axis and optionally add a label
     for t in range(len(task_idx)):
