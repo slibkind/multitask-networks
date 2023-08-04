@@ -31,7 +31,8 @@ def get_hidden_trajectories(model, tasks):
     all_hidden_trajectories = []
     for task_index in range(len(tasks)):
         _, _, _, hidden_trajectory = run_model(model, tasks, task_index)
-        all_hidden_trajectories.append(hidden_trajectory)
+        trajectories = torch.unbind(hidden_trajectory, dim=0)
+        all_hidden_trajectories.extend(trajectories)
         
     return all_hidden_trajectories
 
@@ -49,7 +50,7 @@ def get_all_hiddens(model, tasks):
     hidden_trajectories = get_hidden_trajectories(model, tasks)
 
     # Concatenate the hidden states from all trajectories into a single tensor
-    reshaped_hiddens = torch.cat([ht.view(-1, ht.size(-1)) for ht in hidden_trajectories], dim=0)
+    reshaped_hiddens = torch.cat([ht.reshape(-1, ht.size(-1)) for ht in hidden_trajectories], dim=0)
 
     return reshaped_hiddens
 
@@ -438,13 +439,11 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
 
     # Get the hidden trajectories for all tasks
     all_hidden_trajectories = get_hidden_trajectories(model, tasks)
-    
-    # Reshape the all_hidden_trajectories tensor for PCA
-    reshaped_all_hidden_trajectories = all_hidden_trajectories.view(-1, all_hidden_trajectories.size(-1))
-    
+    all_hiddens = get_all_hiddens(model, tasks)
+   
     # Fit the PCA model on the reshaped_all_hidden_trajectories
     pca = PCA(n_components=2)
-    pca.fit(reshaped_all_hidden_trajectories.detach().numpy())
+    pca.fit(all_hiddens.detach().numpy())
     
     # Transform and plot the data tensors
     for data, label, color, filled in zip(data_list, label_list, color_list, filled_list):
@@ -453,11 +452,12 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
                     facecolors=color if filled else 'none', 
                     edgecolors=color if not filled else 'none')
 
-    # Create a color map that goes from blue to red
-    colors = plt.cm.viridis(np.linspace(0, 1, all_hidden_trajectories.size(1)))  # number of timesteps
-
+    
     # Iterate over the hidden trajectories and plot the PCA of each one
     for hidden_trajectory in all_hidden_trajectories:
+        
+        # Create a color map that goes from blue to red
+        colors = plt.cm.viridis(np.linspace(0, 1, hidden_trajectory.size(0)))  # number of timesteps
         
         # Transform the reshaped hidden_trajectory
         hidden_trajectory_pca = pca.transform(hidden_trajectory.detach().numpy())
@@ -592,5 +592,5 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
     if title:
         ax.set_title(title)
 
-    return ax   # Return the axes object for further manipulationNone
+    return ax   # Return the axes object for further manipulation
     
