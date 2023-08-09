@@ -17,6 +17,14 @@
     "l1_h_lambda": 0.0,
     "l2_h_lambda": 1e-7,
     "seed": 2,
-    "use_scheduler": false,
-    "scheduler_patience": 2000
+    "min_period": 10,
+    "max_period": 800,
+    "min_smoothing_window": 1,
+    "max_smoothing_window": 20,
+    "validation_window": 1000,
+    "val_threshold": 1e-4,
+    "grace_frac": 0.1,
+    "save_interval": 500,
+    "batch_size_test": 8192,
+    "test_n_rep": 256
 }
