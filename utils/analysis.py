@@ -2,7 +2,6 @@ import torch
 from torch import optim
 from torch.autograd.functional import jacobian
 
-import time
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
@@ -17,7 +16,7 @@ from utils.utils import get_fixed_point_path, get_model, input_to_str
 
 from sklearn.decomposition import PCA
 
-def get_hidden_trajectories(model, tasks):
+def get_hidden_trajectories(model, tasks, period_duration = 50, smoothing_window = 1):
     """
     Runs the given RNN model on all tasks and returns the list of hidden trajectories.
 
@@ -30,13 +29,13 @@ def get_hidden_trajectories(model, tasks):
     """
     all_hidden_trajectories = []
     for task_index in range(len(tasks)):
-        _, _, _, hidden_trajectory = run_model(model, tasks, task_index)
+        _, _, _, hidden_trajectory = run_model(model, tasks, task_index, period_duration=period_duration, smoothing_window=smoothing_window)
         trajectories = torch.unbind(hidden_trajectory, dim=0)
         all_hidden_trajectories.extend(trajectories)
         
     return all_hidden_trajectories
 
-def get_all_hiddens(model, tasks):
+def get_all_hiddens(model, tasks, period_duration=50, smoothing_window=1):
     """
     Runs the given RNN model on all tasks and returns the concatenated hidden states.
 
@@ -47,7 +46,7 @@ def get_all_hiddens(model, tasks):
     Returns:
         torch.Tensor: The concatenated hidden states of shape (n_sequences * time_steps, n_hidden).
     """
-    hidden_trajectories = get_hidden_trajectories(model, tasks)
+    hidden_trajectories = get_hidden_trajectories(model, tasks, period_duration=period_duration, smoothing_window=smoothing_window)
 
     # Concatenate the hidden states from all trajectories into a single tensor
     reshaped_hiddens = torch.cat([ht.reshape(-1, ht.size(-1)) for ht in hidden_trajectories], dim=0)
@@ -414,21 +413,70 @@ def is_stable(model, fixed_point, input):
 
 
 
-def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=None, filled_list=None, title=None):
+
+def fit_pca_on_hiddens(model, tasks, period_duration=50, smoothing_window=1):
+    # Get the hidden trajectories for all tasks
+    all_hiddens = get_all_hiddens(model, tasks, period_duration=period_duration, smoothing_window=smoothing_window)
+   
+    # Fit the PCA model on the reshaped_all_hidden_trajectories
+    pca = PCA(n_components=2)
+    pca.fit(all_hiddens.detach().numpy())
+    
+    return pca
+
+def plot_data_pca(pca, data, label, color, filled, marker='o'):
+    # Transform and plot the data tensors
+    data_pca = pca.transform(data.detach().numpy())
+    plt.scatter(data_pca[:, 0], data_pca[:, 1], label=label, marker=marker,
+                facecolors=color if filled else 'none', 
+                edgecolors=color if not filled else 'none')
+
+
+def plot_hidden_trajectory_pca(pca, hidden_trajectory, label=None, cmap='viridis', alpha=0.25, s=10, xytext=(10,10), label_at_percent=0.9):
     """
-    Apply PCA on the hidden trajectories and plot the first two principal components of the data and hidden trajectories.
+    Plots a PCA-transformed hidden trajectory.
 
     Args:
-        model (nn.Module): The RNN model.
-        tasks (list): List of tasks.
-        data_list (list of torch.Tensor): List of data tensors to be plotted.
-        label_list (list of str, optional): List of labels corresponding to the data tensors. Defaults to None.
-        color_list (list of str, optional): List of colors for the data tensors. Defaults to None.
-        filled_list (list of bool, optional): List of booleans indicating whether each data tensor should be plotted as filled or open circles. Defaults to filled circles.
+        pca (sklearn.decomposition.PCA): Pre-trained PCA object.
+        hidden_trajectory (torch.Tensor): The hidden trajectory to plot.
+        label (str, optional): Label for the trajectory. Defaults to None
+        cmap (str, optional): Name of the color map to use. Defaults to 'viridis'.
+        alpha (float, optional): Transparency level for the scatter plot. Defaults to 0.25.
+        s (int, optional): Size of the plotted points. Defaults to 10.
+        xytext (tuple, optional): Offset for the label from the point of interest. Defaults to (10,10).
+        label_at_percent (float, optional): Point in the trajectory where the label should be added (as a fraction of total length). Defaults to 0.9.
 
-    Returns: 
+    Returns:
         None
     """
+    # Create a color map that goes from blue to red
+    colors = plt.get_cmap(cmap)(np.linspace(0, 1, hidden_trajectory.size(0)))  # number of timesteps
+    
+    # Transform the reshaped hidden_trajectory
+    hidden_trajectory_pca = pca.transform(hidden_trajectory.detach().numpy())
+
+    # Plot the first two principal components of the reshaped_hidden_trajectory for each timestep
+    for timestep in range(hidden_trajectory.size(0)):
+        plt.scatter(hidden_trajectory_pca[timestep, 0], 
+                    hidden_trajectory_pca[timestep, 1], 
+                    alpha=alpha, 
+                    s=s,
+                    c=[colors[timestep]])
+
+    # Get the index corresponding to the specified percentage of the trajectory
+    idx_label_at = int(hidden_trajectory.size(0) * label_at_percent)
+    
+    # Add label to the trajectory
+    if label is not None:
+        plt.annotate(label, 
+                    (hidden_trajectory_pca[idx_label_at, 0], hidden_trajectory_pca[idx_label_at, 1]),
+                    textcoords="offset points",  # how to position the text
+                    xytext=xytext,  # distance from text to points (x,y)
+                    ha='center',  # horizontal alignment can be left, right or center 
+                    arrowprops=dict(facecolor='black', shrink=0.05, headwidth=5, headlength=7, width=1),
+                    fontsize=8)  # properties for the annotation arrow
+
+def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=None, filled_list=None, title=None):
     # Initialize default labels, colors and filled status if not provided
     if label_list is None:
         label_list = ['Data {}'.format(i) for i in range(len(data_list))]
@@ -437,38 +485,13 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
     if filled_list is None:
         filled_list = [True for _ in range(len(data_list))]
 
-    # Get the hidden trajectories for all tasks
-    all_hidden_trajectories = get_hidden_trajectories(model, tasks)
-    all_hiddens = get_all_hiddens(model, tasks)
-   
-    # Fit the PCA model on the reshaped_all_hidden_trajectories
-    pca = PCA(n_components=2)
-    pca.fit(all_hiddens.detach().numpy())
-    
-    # Transform and plot the data tensors
-    for data, label, color, filled in zip(data_list, label_list, color_list, filled_list):
-        data_pca = pca.transform(data.detach().numpy())
-        plt.scatter(data_pca[:, 0], data_pca[:, 1], label=label, 
-                    facecolors=color if filled else 'none', 
-                    edgecolors=color if not filled else 'none')
+    pca = fit_pca_on_hiddens(model, tasks)
+    for (data, label, color, filled) in zip(data_list, label_list, color_list, filled_list):
+        plot_data_pca(pca, data, label, color, filled)
 
-    
-    # Iterate over the hidden trajectories and plot the PCA of each one
-    for hidden_trajectory in all_hidden_trajectories:
-        
-        # Create a color map that goes from blue to red
-        colors = plt.cm.viridis(np.linspace(0, 1, hidden_trajectory.size(0)))  # number of timesteps
-        
-        # Transform the reshaped hidden_trajectory
-        hidden_trajectory_pca = pca.transform(hidden_trajectory.detach().numpy())
-
-        # Plot the first two principal components of the reshaped_hidden_trajectory for each timestep
-        for timestep in range(hidden_trajectory.size(0)):
-            plt.scatter(hidden_trajectory_pca[timestep, 0], 
-                        hidden_trajectory_pca[timestep, 1], 
-                        alpha=0.25, 
-                        s=10,
-                        c=[colors[timestep]])
+    hidden_trajectories = get_hidden_trajectories(model, tasks)
+    for hidden_trajectory in hidden_trajectories:
+        plot_hidden_trajectory_pca(pca, hidden_trajectory)
 
     plt.xlabel('Principal Component 1')
     plt.ylabel('Principal Component 2')
@@ -476,7 +499,6 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
         plt.title(title)
     plt.legend()
     plt.show()
-
 
 
 
