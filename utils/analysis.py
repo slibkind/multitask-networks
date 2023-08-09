@@ -19,22 +19,24 @@ from sklearn.decomposition import PCA
 
 def get_hidden_trajectories(model, tasks):
     """
-    Runs the given RNN model on all tasks and returns the list of hidden trajectories.
+    Runs the given RNN model on all tasks and returns the concatenated hidden trajectories.
 
     Args:
         model (nn.Module): The RNN model.
         tasks (list): List of tasks.
 
     Returns:
-        list[torch.Tensor]: The list of hidden trajectories.
+        torch.Tensor: The concatenated hidden trajectories of shape (n_sequences, timesteps, n_hidden).
     """
     all_hidden_trajectories = []
     for task_index in range(len(tasks)):
         _, _, _, hidden_trajectory = run_model(model, tasks, task_index)
-        trajectories = torch.unbind(hidden_trajectory, dim=0)
-        all_hidden_trajectories.extend(trajectories)
-        
-    return all_hidden_trajectories
+        all_hidden_trajectories.append(hidden_trajectory)
+
+    # Concatenate the hidden trajectories from all tasks
+    concatenated_hidden_trajectories = torch.cat(all_hidden_trajectories, dim=0)
+
+    return concatenated_hidden_trajectories
 
 def get_all_hiddens(model, tasks):
     """
@@ -49,8 +51,8 @@ def get_all_hiddens(model, tasks):
     """
     hidden_trajectories = get_hidden_trajectories(model, tasks)
 
-    # Concatenate the hidden states from all trajectories into a single tensor
-    reshaped_hiddens = torch.cat([ht.reshape(-1, ht.size(-1)) for ht in hidden_trajectories], dim=0)
+    # Reshape the concatenated hidden states
+    reshaped_hiddens = hidden_trajectories.view(-1, hidden_trajectories.size(-1))
 
     return reshaped_hiddens
 
@@ -113,7 +115,7 @@ def get_speed(model, input, hidden, duplicate_input=True):
     return speed
 
     
-def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, patience=1000, max_iterations=None, verbose=False, method='first', check_interval=10000):
+def minimize_speed(model, input, initial_hidden, learning_rate, grad_threshold, patience=1000, max_iterations=None, verbose=True, method='first', check_interval=10000):
     """
     Minimizes the speed (q) of the dynamics of a given model using gradient descent. The optimization
     is performed from multiple initial conditions simultaneously, which allows for more comprehensive 
@@ -439,11 +441,13 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
 
     # Get the hidden trajectories for all tasks
     all_hidden_trajectories = get_hidden_trajectories(model, tasks)
-    all_hiddens = get_all_hiddens(model, tasks)
-   
+    
+    # Reshape the all_hidden_trajectories tensor for PCA
+    reshaped_all_hidden_trajectories = all_hidden_trajectories.view(-1, all_hidden_trajectories.size(-1))
+    
     # Fit the PCA model on the reshaped_all_hidden_trajectories
     pca = PCA(n_components=2)
-    pca.fit(all_hiddens.detach().numpy())
+    pca.fit(reshaped_all_hidden_trajectories.detach().numpy())
     
     # Transform and plot the data tensors
     for data, label, color, filled in zip(data_list, label_list, color_list, filled_list):
@@ -452,12 +456,11 @@ def plot_hiddens_and_data(model, tasks, data_list, label_list=None, color_list=N
                     facecolors=color if filled else 'none', 
                     edgecolors=color if not filled else 'none')
 
-    
+    # Create a color map that goes from blue to red
+    colors = plt.cm.viridis(np.linspace(0, 1, all_hidden_trajectories.size(1)))  # number of timesteps
+
     # Iterate over the hidden trajectories and plot the PCA of each one
     for hidden_trajectory in all_hidden_trajectories:
-        
-        # Create a color map that goes from blue to red
-        colors = plt.cm.viridis(np.linspace(0, 1, hidden_trajectory.size(0)))  # number of timesteps
         
         # Transform the reshaped hidden_trajectory
         hidden_trajectory_pca = pca.transform(hidden_trajectory.detach().numpy())
@@ -487,8 +490,7 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
                            title=None, 
                            cmap='plasma', 
                            s = 100,
-                           ax=None, 
-                           plot_3d=False):
+                           ax=None):
     """
     Visualize fixed points' first principal component for each interpolated input.
     
@@ -526,12 +528,7 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
 
     # Create a new figure if no axes object was provided
     if ax is None:
-        fig = plt.figure(figsize=(10, 8))  # we need a fig reference for 3D plotting
-        if plot_3d:
-            ax = fig.add_subplot(111, projection='3d')  # add a 3D subplot
-        else:
-            ax = fig.add_subplot(111)  # add a 2D subplot
-
+        _, ax = plt.subplots(figsize=(10, 8))
 
     # Loop over the task pairs
     for t in range(len(task_idx) - 1):
@@ -562,8 +559,7 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
     # Convert to numpy for compatibility with PCA
     combined_fixed_points_np = combined_fixed_points.detach().numpy()
 
-    n_components = 2 if plot_3d else 1
-    pca = PCA(n_components=n_components)
+    pca = PCA(n_components=1)
     pca.fit(combined_fixed_points_np)
 
     # Plot the first principal component for each interpolated input
@@ -573,24 +569,16 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
                 fixed_points_i = all_fixed_points[t*n_interp+i]
 
                 if fixed_points_i.numel() == 0: 
-                    continue
+                        continue
                 
-                projections = pca.transform(fixed_points_i.detach().numpy())
+                projections = pca.transform(fixed_points_i.detach().numpy())[:, 0]
                 color = cmap(color_norm(t*n_interp+i))
 
                 for proj in projections:
-                    if plot_3d:
-                        # For 3D plot, we scatter x, y and z
-                        if is_stable:
-                            ax.scatter([(t + i / n_interp)], proj[0], proj[1], color=color, edgecolors=color, s=s)
-                        else:
-                            ax.scatter([(t + i / n_interp)], proj[0], proj[1], color='none', edgecolor=color, s=s)
+                    if is_stable:
+                        ax.scatter([(t + i / n_interp)], [proj], color=color, edgecolors=color, s=s)
                     else:
-                        # For 2D plot, we scatter x and y only
-                        if is_stable:
-                            ax.scatter([(t + i / n_interp)], [proj[0]], color=color, edgecolors=color, s=s)
-                        else:
-                            ax.scatter([(t + i / n_interp)], [proj[0]], color='none', edgecolor=color, s=s)
+                        ax.scatter([(t + i / n_interp)], [proj], color='none', edgecolor=color, s=s)
 
     # Draw a vertical line at each integer on the x-axis and optionally add a label
     for t in range(len(task_idx)):
@@ -607,5 +595,5 @@ def visualize_fixed_points(model_name, epoch, task_idx, period, stimulus, n_inte
     if title:
         ax.set_title(title)
 
-    return ax   # Return the axes object for further manipulation
+    return ax   # Return the axes object for further manipulationNone
     
