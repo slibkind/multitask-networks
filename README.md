@@ -13,7 +13,7 @@ Each task in this project has a defined structure which includes inputs, outputs
 - **DelayGoContinuous**: A variation of the Delay-Go task. Instead of the stimulus being a binary value, it is a float $\theta$ between $0$ and $2\pi$. The input and output tensors encode the sine and cosine of the stimulus rather than a one-hot encoding.
 - **DelayAntiContinuous**: Similar to the DelayGoContinuous task, but during the "go" period, the network should respond as though it received the opposite  stimulus ($-\theta$) that was active during the "stimulus on" period.
 - **DelayMatchToSample**: This task consists of six periods: "fixation", "stimulus A on", "delay 1", "stimulus B on", "delay 2", and "go". The network should respond with stimulus B during the "go" period if and only if stimulus A and stimulus B were the same during their respective periods.
-- **Delay-Anti-Match-to-Sample**: Similar to the DelayMatchToSample task, but during the "go" period, the network should respond with stimulus B if and only if stimulus A and stimulus B were the different during their respective periods.
+- **DelayAntiMatchToSample**: Similar to the DelayMatchToSample task, but during the "go" period, the network should respond with stimulus B if and only if stimulus A and stimulus B were the different during their respective periods.
 
 
 
