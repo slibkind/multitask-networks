@@ -16,5 +16,7 @@
     "l2_lambda": 1e-7,
     "l1_h_lambda": 0.0,
     "l2_h_lambda": 1e-7,
-    "seed": 2
+    "seed": 2,
+    "use_scheduler": false,
+    "scheduler_patience": 2000
 }

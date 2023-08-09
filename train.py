@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
 
 import random
 import math
@@ -13,7 +12,7 @@ from tqdm import tqdm
 from utils.utils import get_hparams, get_model_path, load_checkpoint, get_metrics_path
 from utils.model import MultitaskRNN
 from utils.task import add_task_identity
-from tasks import DelayGo, DelayAnti
+import tasks
 
 # Add your set_seed function here
 def set_seed(seed):
@@ -36,40 +35,39 @@ def check_task_compatibility(tasks):
 
     return True
 
-def compute_loss(rnn, tasks, period_duration, grace_frac):
+def compute_loss(rnn, tasks, task_idx, batch_size, period_duration, smoothing_window, grace_frac):
     with torch.no_grad():
         total_loss = 0
-        for task_index, task in enumerate(tasks):
-            # Generate all input sequences for the task
-            input_sequences, output_sequences = task.generate_all_sequences(period_duration=period_duration)
-            input_sequences = add_task_identity(input_sequences, task_index, len(tasks))
-            num_sequences = output_sequences.shape[0]
+        num_sequences = batch_size
 
-            # Create mask for the validation set
-            mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
-            mask = mask.repeat(num_sequences, 1, 1)   # Repeat the mask to match the number of sequences
+        task = tasks[task_idx]
+        
+        # Generate all input sequences for the task
+        input_sequences, output_sequences = task.generate_batch(batch_size, period_duration, smoothing_window=smoothing_window)
+        input_sequences = add_task_identity(input_sequences, task_idx, len(tasks))
+            
+        # Create mask for the validation set
+        mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
+        mask = mask.repeat(num_sequences, 1, 1)   # Repeat the mask to match the number of sequences
 
-            # Reset the hidden state
-            hidden = rnn.init_hidden(num_sequences)
+        # Reset the hidden state
+        hidden = rnn.init_hidden(num_sequences)
 
-            # Forward pass on validation set
-            predictions, hidden = rnn(input_sequences, hidden)  # assuming no need for the hidden state
+        # Forward pass on validation set
+        predictions, hidden = rnn(input_sequences, hidden)  # assuming no need for the hidden state
 
-            # Compute validation loss
-            total_loss += F.mse_loss(predictions * mask, output_sequences * mask)
+        # Compute validation loss
+        total_loss += F.mse_loss(predictions * mask, output_sequences * mask)
 
-        # Average the loss across tasks
-        total_loss /= len(tasks)
     return total_loss
 
 def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     """Train the RNN on multiple tasks."""
 
     save_path = get_model_path(model_name)
-    save_path_latest = get_model_path(model_name, latest = True)
-    save_interval = 500  # Save the model every 500 epochs
-    validation_frequency = 100
-    
+    save_path_latest = get_model_path(model_name, latest=True)
+    save_interval = hparams['save_interval']
+
     batch_size = hparams['batch_size']
     learning_rate = hparams['learning_rate']
     sigma_x = hparams['sigma_x']
@@ -78,21 +76,23 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 
     set_seed(seed)
 
-    min_period = 25
-    max_period = 200
+    min_period = hparams['min_period']
+    max_period = hparams['max_period']
+    min_window = hparams['min_smoothing_window']
+    max_window = hparams['max_smoothing_window']
 
-    validation_window = 1000
-    val_threshold = 1e-4
+    batch_size_test = hparams['batch_size_test']
+    n_rep = hparams['test_n_rep']
 
-    grace_frac = 0.1
+    grace_frac = hparams['grace_frac']
 
-    noise = sigma_x/math.sqrt(2/alpha)
+    noise = sigma_x / math.sqrt(2 / alpha)
 
     # Check that all tasks have the same number of inputs and outputs
     if not check_task_compatibility(tasks):
         raise ValueError("All tasks must have the same number of inputs and outputs.")
 
-    # Initialize the optimizer and scheduler (if applicable)
+    # Initialize the optimizer 
     optimizer = torch.optim.Adam(rnn.parameters(), lr=learning_rate)
 
     # Load the model from checkpoint if exists
@@ -108,12 +108,11 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         with open(metrics_path, "r") as f:
             performance_metrics = json.load(f)
     else:
-        performance_metrics = {"epochs": [], "val_loss": [], "avg_loss": []}
+        performance_metrics = {"epochs": []}
+        for i, task in enumerate(tasks):
+          performance_metrics[f"task_{i}_loss"] = []
 
 
-
-    # Initialize best validation loss as infinity
-    best_val_loss = float('inf')
 
     # Initialize the progress bar
     progress_bar = tqdm(range(max_epochs))
@@ -134,29 +133,21 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         # Get a random period duration
         period_duration = random.randint(min_period, max_period + 1)
 
-        for i in range(batch_size):
-            
-            # Define the smoothing window
-            min_window = max(1, int(0.02 * period_duration)) # 1
-            max_window = int(0.4 * period_duration) # 20
-            smoothing_window = random.randint(min_window, max_window)
+        # Define the smoothing window
+        smoothing_window = random.randint(min_window, max_window)
 
-            # Generate a batch of sequences for the task with the selected smoothing window
-            task_inputs, task_outputs = task.generate_batch(1, period_duration = period_duration, smoothing_window=smoothing_window, noise = noise)
-            
-            # Extend the inputs with the task identity
-            task_inputs = add_task_identity(task_inputs, task_index, len(tasks))
-            
-            inputs.append(task_inputs)
-            outputs.append(task_outputs)
+        # Select a single task for the whole batch
+        task_index = torch.randint(len(tasks), (1,)).item()
+        task = tasks[task_index]
 
-            # Create a mask for the grace period
-            mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
-            masks.append(mask)
+        # Generate the full batch just for this task
+        inputs, outputs = task.generate_batch(batch_size, period_duration, smoothing_window = smoothing_window, noise = noise)
+        inputs = add_task_identity(inputs, task_index, len(tasks))
 
-        inputs = torch.cat(inputs)
-        outputs = torch.cat(outputs)
-        masks = torch.cat(masks)
+        # Create a mask for the grace period
+        mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
+        masks = mask.repeat(batch_size, 1, 1)
+
 
         # Reset the hidden state
         hidden = rnn.init_hidden(batch_size)
@@ -208,51 +199,43 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
             'tasks': tasks
         }
         torch.save(model_data, save_path_latest)
-
-
-        # Compute and print validation and average losses every "validation_frequency" epochs
-        if (epoch + start_epoch) % validation_frequency == 0:
-            
-            val_loss = compute_loss(rnn, tasks, validation_window, grace_frac)
-            avg_loss = compute_loss(rnn, tasks, int(0.5 * (min_period + max_period)), grace_frac)
-            
-            # Update progress bar
-            progress_bar.set_postfix({'Validation Loss': val_loss.item(), 'Average Loss': avg_loss.item()})
-            
-            # Add current performance to metrics
-            performance_metrics["epochs"].append(epoch + start_epoch)
-            performance_metrics["val_loss"].append(val_loss.item())
-            performance_metrics["avg_loss"].append(avg_loss.item())
-
-            # Save performance metrics as a JSON file
-            with open(metrics_path, "w") as f:
-                json.dump(performance_metrics, f)
-                    
-            # If validation loss improved, save the model state
-            if val_loss < best_val_loss:
-                torch.save(model_data, save_path)
-
-            # If validation loss below threshold, stop training
-            if val_loss <= val_threshold:
-                print(f"Validation loss is below the threshold of {val_threshold} at epoch {epoch + start_epoch}. Stopping training.")
-                return
             
         if (epoch + start_epoch) % save_interval == 0:
             # Save the model every "save_interval" epochs
             interval_save_path = get_model_path(model_name, epoch=epoch+start_epoch)
             torch.save(model_data, interval_save_path)
 
+            # Compute and print the loss
+            for i in range(len(tasks)):
+                task_losses = []
+                for _ in range(n_rep):
+                    batch_size = batch_size_test // n_rep
+                    period_duration = random.randint(min_period, max_period + 1)
+                    smoothing_window = random.randint(min_window, max_window)
+                    task_loss = compute_loss(rnn, tasks, i, batch_size, period_duration, smoothing_window, grace_frac)
+                    task_losses.append(task_loss.item())
+                avg_task_loss = np.mean(task_losses)
+                
+                # Add current performance to metrics
+                performance_metrics[f"task_{i}_loss"].append(avg_task_loss)
+                
+                # Update progress bar
+                progress_bar.set_postfix({f'Task {i} Loss': avg_task_loss})
+                
+            # Add the epoch number to the metrics
+            performance_metrics["epochs"].append(epoch + start_epoch)
+            
+            # Save performance metrics as a JSON file
+            with open(metrics_path, "w") as f:
+                json.dump(performance_metrics, f)            
+
     print("Training reached maximum epochs.")
         
 
-# Initialize tasks
-delay_go_task = DelayGo()
-delay_anti_task = DelayAnti()
-
-tasks = [delay_go_task, delay_anti_task]
+tasks = [tasks.DelayGo(), tasks.DelayMatchToSample()]
 
 # Initialize RNN model
-model_name = "delaygo_delayanti_256"
+model_name = "matchToSample"
 hparams = get_hparams(model_name)
 
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
@@ -262,6 +245,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 100000
+max_epochs = 20001
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
