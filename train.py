@@ -130,8 +130,8 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         outputs = []
         masks = []  # For masking the loss calculation
 
-        # Get a random period duration
-        period_duration = random.randint(min_period, max_period + 1)
+        # Get random period durations for each period
+        period_durations = [random.randint(min_val, max_val + 1) for min_val, max_val in zip(min_period, max_period)]
 
         # Define the smoothing window
         smoothing_window = random.randint(min_window, max_window)
@@ -141,11 +141,11 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
         task = tasks[task_index]
 
         # Generate the full batch just for this task
-        inputs, outputs = task.generate_batch(batch_size, period_duration, smoothing_window = smoothing_window, noise = noise)
+        inputs, outputs = task.generate_batch(batch_size, period_durations, smoothing_window = smoothing_window, noise = noise)
         inputs = add_task_identity(inputs, task_index, len(tasks))
 
         # Create a mask for the grace period
-        mask = task.generate_mask(period_duration, grace_frac).unsqueeze(0)
+        mask = task.generate_mask(period_durations, grace_frac).unsqueeze(0)
         masks = mask.repeat(batch_size, 1, 1)
 
 
@@ -210,9 +210,9 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
                 task_losses = []
                 for _ in range(n_rep):
                     batch_size = batch_size_test // n_rep
-                    period_duration = random.randint(min_period, max_period + 1)
+                    period_durations = [random.randint(min_val, max_val + 1) for min_val, max_val in zip(min_period, max_period)]
                     smoothing_window = random.randint(min_window, max_window)
-                    task_loss = compute_loss(rnn, tasks, i, batch_size, period_duration, smoothing_window, grace_frac)
+                    task_loss = compute_loss(rnn, tasks, i, batch_size, period_durations, smoothing_window, grace_frac)
                     task_losses.append(task_loss.item())
                 avg_task_loss = np.mean(task_losses)
                 
@@ -232,10 +232,10 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     print("Training reached maximum epochs.")
         
 
-tasks = [tasks.DelayGo(), tasks.DelayMatchToSample()]
+tasks = [tasks.DelayGo(), tasks.DelayAnti()]
 
 # Initialize RNN model
-model_name = "matchToSample"
+model_name = "delaygo_delayanti_var_durations"
 hparams = get_hparams(model_name)
 
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
@@ -245,6 +245,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 20001
+max_epochs = 30001
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)

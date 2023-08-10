@@ -46,16 +46,56 @@ class DelayGo(Task):
 
         return input_tensor
 
-    def generate_mask(self, period_duration = 50, grace_frac = 0):
-        # Generate the mask to allow a grace period at the beginning of the go period
-        # the grace period is a fraction of the period_duration
+    def generate_mask(self, period_duration=50, grace_frac=0):
+        """
+        Generate a mask tensor for output sequences during training.
 
-        mask = torch.ones(4 * period_duration, self.num_outputs)
-        mask[3*period_duration:3*period_duration+int(period_duration*grace_frac), :] = 0
+        Args:
+            period_durations (int or tuple of int): Duration for each period. If an integer is provided, it is replicated for each period.
+                                                    By default, set to 50 for all periods.
+            grace_frac (float): Fraction of the 'go' period to be masked at the beginning.
+                                This allows a grace period for the network response.
+
+        Returns:
+            torch.Tensor: A mask tensor with ones where the network output is expected and zeros during the grace period.
+        """
+        
+        # Check if period_durations is an integer and replicate if needed
+        if isinstance(period_duration, int):
+            period_durations = (period_duration,) * self.num_periods
+
+        total_duration = sum(period_duration)
+        mask = torch.ones(total_duration, self.num_outputs)
+        
+        # Start of the 'go' period
+        go_start = sum(period_duration[:-1])
+        grace_duration = int(period_duration[-1] * grace_frac)
+
+        mask[go_start:go_start+grace_duration, :] = 0
         return mask
+
     
-    def generate_batch(self, batch_size, period_duration = 50, smoothing_window=1, noise = 0.0):
-        sequence_length = self.num_periods * period_duration
+    def generate_batch(self, batch_size, period_duration=50, smoothing_window=1, noise=0.0):
+        """
+        Generate a batch of input-output pairs for the DelayGo task.
+
+        Args:
+            batch_size (int): The number of sequences in the batch.
+            period_duration (int or tuple of ints): Duration of each period in time steps. 
+                - If an integer is provided, all periods will have the same duration.
+                - If a tuple is provided, each period will have the duration specified by the corresponding tuple element.
+            smoothing_window (int): The size of the smoothing window for the input sequences.
+            noise (float): Standard deviation of Gaussian noise added to the inputs.
+
+        Returns:
+            tuple: A tuple containing the input and output sequences as torch tensors.
+        """
+        
+        # Ensure period_duration is a tuple
+        if isinstance(period_duration, int):
+            period_duration = (period_duration,) * self.num_periods
+
+        sequence_length = sum(period_duration)
 
         # Initialize a tensor to hold the input sequences
         inputs = torch.zeros(batch_size, sequence_length, self.num_inputs)  # 3 input units: fixation, stimulus 1, stimulus 2
@@ -68,27 +108,31 @@ class DelayGo(Task):
             # Generate a random stimulus (1 or 2) for the "stimulus on" period
             stimulus_on = torch.randint(1, 3, (1,))
 
-            for period in range(self.num_periods):
+            start_time = 0
+            for period, duration in enumerate(period_duration):
+                end_time = start_time + duration
                 if period == 0:  # fixation period
-                    inputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # fixation input is on
-                    outputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # the fixation output is on
+                    inputs[i, start_time:end_time, 0] = 1
+                    outputs[i, start_time:end_time, 0] = 1
                 elif period == 1:  # stimulus on period
-                    inputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # fixation input is on
-                    inputs[i, period*period_duration:(period+1)*period_duration, stimulus_on] = 1  # the chosen stimulus is on
-                    outputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # the fixation output is on
+                    inputs[i, start_time:end_time, 0] = 1
+                    inputs[i, start_time:end_time, stimulus_on] = 1
+                    outputs[i, start_time:end_time, 0] = 1
                 elif period == 2:  # delay period
-                    inputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # fixation input is on
-                    outputs[i, period*period_duration:(period+1)*period_duration, 0] = 1  # the fixation output is on
+                    inputs[i, start_time:end_time, 0] = 1
+                    outputs[i, start_time:end_time, 0] = 1
                 elif period == 3:  # go period
-                    outputs[i, period*period_duration:(period+1)*period_duration, stimulus_on] = 1  # the chosen stimulus responds
+                    outputs[i, start_time:end_time, stimulus_on] = 1
+                start_time = end_time
 
         # Smooth the inputs
         inputs = smooth_sequence(inputs, smoothing_window)
 
-        # Add noise to the inputs and outputs
+        # Add noise to the inputs
         inputs += torch.randn_like(inputs) * noise
 
         return inputs, outputs
+
 
     def generate_all_sequences(self, period_duration = 50, smoothing_window=1, noise=0.0):
         sequence_length = self.num_periods * period_duration
