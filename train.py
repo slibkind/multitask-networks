@@ -64,7 +64,6 @@ def compute_loss(rnn, tasks, task_idx, batch_size, period_duration, smoothing_wi
 def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     """Train the RNN on multiple tasks."""
 
-    save_path = get_model_path(model_name)
     save_path_latest = get_model_path(model_name, latest=True)
     save_interval = hparams['save_interval']
 
@@ -73,11 +72,13 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
     sigma_x = hparams['sigma_x']
     alpha = hparams['alpha']
     seed = hparams['seed']
+    dt = hparams['dt']
 
     set_seed(seed)
 
-    min_period = hparams['min_period']
-    max_period = hparams['max_period']
+    min_period = tuple(int(p/dt) for p in hparams['min_period'])
+    max_period = tuple(int(p/dt) for p in hparams['max_period'])
+
     min_window = hparams['min_smoothing_window']
     max_window = hparams['max_smoothing_window']
 
@@ -235,7 +236,7 @@ def train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams):
 tasks = [tasks.DelayGo(), tasks.DelayAnti()]
 
 # Initialize RNN model
-model_name = "delaygo_delayanti_var_durations"
+model_name = "var_durations3"
 hparams = get_hparams(model_name)
 
 num_inputs = tasks[0].num_inputs + len(tasks)  # Include space for task identity inputs
@@ -245,6 +246,6 @@ num_hidden = hparams['num_hidden']
 rnn = MultitaskRNN(num_inputs, num_hidden, num_outputs, hparams)
 
 # Train the model
-max_epochs = 30001
+max_epochs = 60001
 
 train_rnn_on_tasks(model_name, rnn, tasks, max_epochs, hparams)
